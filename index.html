@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flow Metrics Report Builder — Pandora PACE</title>
+<meta name="description" content="Upload your Jira CSV, select metrics, and generate a stakeholder-ready flow metrics report.">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --black:#24231F;--red:#F3271E;--plum:#B5598C;
+  --blush:#FCCAD3;--rose:#F796A1;--white:#FFFFFF;
+  --off:#FAF6F7;--lgrey:#E8E0E2;--muted:#7A6A6D;
+  --green:#2E7D5E;--orange:#C97A2A;--crimson:#C0392B;--teal:#1C6B7A;
+}
+html{font-size:16px}
+body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);min-height:100vh}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--lgrey);border-radius:3px}
+
+/* ── HEADER ── */
+.hdr{background:var(--black);height:54px;padding:0 1.5rem;display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid var(--red);position:sticky;top:0;z-index:300}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-name{font-family:'DM Serif Display',serif;color:var(--white);font-size:.95rem}
+.brand-sep{width:1px;height:16px;background:#3a3835}
+.brand-sub{font-size:.7rem;color:var(--rose);font-weight:300}
+.badge{background:var(--plum);color:var(--white);font-size:.6rem;font-weight:600;padding:2px 8px;border-radius:20px;letter-spacing:.8px}
+
+/* ── LAYOUT ── */
+.layout{display:grid;grid-template-columns:380px 1fr;min-height:calc(100vh - 54px)}
+.sidebar{background:var(--white);border-right:1px solid var(--lgrey);padding:1.25rem;overflow-y:auto;position:sticky;top:54px;height:calc(100vh - 54px)}
+.main{padding:1.5rem;overflow-y:auto}
+
+/* ── STEPS ── */
+.step{margin-bottom:1.25rem}
+.step-head{display:flex;align-items:center;gap:8px;margin-bottom:.65rem}
+.snum{width:22px;height:22px;border-radius:50%;background:var(--red);color:var(--white);font-size:.7rem;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s}
+.snum.done{background:var(--green)}
+.slabel{font-size:.82rem;font-weight:600;color:var(--black)}
+.divider{border:none;border-top:1px solid var(--lgrey);margin:1.2rem 0}
+
+/* ── DRAG & DROP UPLOAD ── */
+.drop-zone{
+  border:2.5px dashed var(--rose);
+  border-radius:14px;
+  padding:2rem 1rem;
+  text-align:center;
+  cursor:pointer;
+  position:relative;
+  background:var(--off);
+  transition:all .2s;
+  overflow:hidden;
+}
+.drop-zone::before{
+  content:'';
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 0%, rgba(243,39,30,.06) 0%, transparent 70%);
+  pointer-events:none;
+}
+.drop-zone:hover,.drop-zone.drag-over{
+  border-color:var(--red);
+  background:#fff8f8;
+  transform:scale(1.01);
+  box-shadow:0 4px 24px rgba(243,39,30,.12);
+}
+.drop-zone.loaded{
+  border-color:var(--green);
+  border-style:solid;
+  background:#f2f8f5;
+  transform:none;
+  box-shadow:none;
+}
+.drop-zone.loaded::before{background:radial-gradient(ellipse at 50% 0%,rgba(46,125,94,.06) 0%,transparent 70%)}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+
+.drop-icon{font-size:2.8rem;margin-bottom:.5rem;transition:transform .2s;display:block}
+.drop-zone:hover .drop-icon,.drop-zone.drag-over .drop-icon{transform:translateY(-4px)}
+.drop-zone.loaded .drop-icon{font-size:2rem}
+.drop-title{font-family:'DM Serif Display',serif;font-size:1.1rem;color:var(--black);margin-bottom:.25rem}
+.drop-zone.loaded .drop-title{color:var(--green);font-size:.95rem}
+.drop-sub{font-size:.75rem;color:var(--muted);margin-bottom:.5rem}
+.drop-pill{display:inline-block;background:var(--blush);color:var(--crimson);font-size:.68rem;font-weight:500;padding:3px 10px;border-radius:20px}
+.drop-zone.loaded .drop-pill{background:#d4ede3;color:var(--green)}
+.drop-zone.drag-over .drop-title::after{content:' — release to upload';color:var(--red)}
+
+/* ── STATS ── */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:.65rem}
+.s-pill{background:var(--off);border-radius:7px;padding:7px 8px;border-left:3px solid var(--red);transition:transform .15s}
+.s-pill:hover{transform:translateY(-1px)}
+.s-pill.g{border-left-color:var(--green)}
+.s-pill.p{border-left-color:var(--plum)}
+.s-pill.o{border-left-color:var(--orange)}
+.sv{font-family:'DM Serif Display',serif;font-size:1.3rem;color:var(--black);line-height:1}
+.sl{font-size:.62rem;color:var(--muted);margin-top:1px}
+
+/* ── INPUTS ── */
+.igrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.igrid input,.igrid select,.fi{
+  width:100%;font-size:.78rem;padding:7px 9px;
+  border-radius:7px;border:1px solid var(--lgrey);
+  background:var(--white);color:var(--black);
+  font-family:'DM Sans',sans-serif;transition:border-color .12s;
+}
+.igrid input:focus,.igrid select:focus,.fi:focus{outline:none;border-color:var(--plum);box-shadow:0 0 0 3px rgba(181,89,140,.1)}
+.fi{margin-bottom:5px}
+
+/* ── SECTION LABEL ── */
+.sec{font-size:.63rem;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+
+/* ── METRIC TOGGLES ── */
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
+.mt{border:1px solid var(--lgrey);border-radius:8px;padding:8px 9px;cursor:pointer;display:flex;align-items:flex-start;gap:7px;background:var(--white);transition:all .12s;user-select:none}
+.mt:hover{border-color:var(--plum);background:#fdf5f9}
+.mt.on{border-color:var(--red);background:#fff5f5}
+.mcheck{width:14px;height:14px;border-radius:3px;border:1.5px solid var(--lgrey);margin-top:1px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--white);transition:all .12s}
+.mt.on .mcheck{background:var(--red);border-color:var(--red)}
+.mname{font-size:.74rem;font-weight:500;color:var(--black);line-height:1.2}
+.mdesc{font-size:.65rem;color:var(--muted);margin-top:1px}
+.mtag{display:inline-block;font-size:.58rem;padding:1px 5px;border-radius:8px;margin-top:3px}
+.tag-f{background:#ffe8e8;color:var(--crimson)}
+.tag-q{background:#f3eaf8;color:var(--plum)}
+
+/* ── FORMAT BTNS ── */
+.frow{display:flex;gap:6px}
+.fb{flex:1;padding:8px;border-radius:8px;border:1px solid var(--lgrey);background:var(--white);cursor:pointer;font-size:.76rem;font-weight:500;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:5px;font-family:'DM Sans',sans-serif;transition:all .12s}
+.fb:hover{border-color:var(--plum);color:var(--plum)}
+.fb.on{border-color:var(--red);background:#fff5f5;color:var(--crimson);font-weight:600}
+
+/* ── GENERATE BTN ── */
+.gbtn{width:100%;padding:13px;border-radius:10px;background:var(--black);color:var(--white);font-size:.88rem;font-weight:600;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-family:'DM Sans',sans-serif;margin-top:1rem;transition:all .15s}
+.gbtn:hover:not(:disabled){background:#3a3833;transform:translateY(-1px);box-shadow:0 4px 16px rgba(36,35,31,.2)}
+.gbtn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+.gbtn.done{background:var(--green)}
+.rdot{width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0}
+.gbtn.done .rdot{background:#9fdfc4}
+
+/* ── MAIN PANEL ── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:65vh;text-align:center;gap:.75rem}
+.empty-icon{font-size:4rem;opacity:.25}
+.empty-title{font-family:'DM Serif Display',serif;font-size:1.4rem;color:var(--muted)}
+.empty-sub{font-size:.82rem;color:var(--muted);max-width:320px;line-height:1.6}
+.empty-arrow{font-size:1.5rem;color:var(--lgrey);animation:bounce 1.5s infinite}
+@keyframes bounce{0%,100%{transform:translateX(0)}50%{transform:translateX(-8px)}}
+
+.preview-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.preview-h1{font-family:'DM Serif Display',serif;font-size:1.4rem;color:var(--black)}
+.slide-badge{background:#f3eaf8;color:var(--plum);font-size:.72rem;font-weight:500;padding:3px 10px;border-radius:10px}
+
+/* ── SLIDE THUMBNAILS ── */
+.thumb-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:1.25rem}
+.thumb{border:1px solid var(--lgrey);border-radius:9px;overflow:hidden;cursor:pointer;transition:all .15s}
+.thumb:hover{box-shadow:0 2px 12px rgba(0,0,0,.1);transform:translateY(-2px)}
+.thumb.active{border-color:var(--red);box-shadow:0 0 0 2px rgba(243,39,30,.25)}
+.thumb-vis{height:72px;display:flex;align-items:center;justify-content:center;font-size:1.6rem}
+.thumb-foot{background:var(--off);padding:5px 8px;border-top:1px solid var(--lgrey)}
+.thumb-name{font-size:.7rem;font-weight:500;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb-type{font-size:.6rem;color:var(--muted)}
+
+/* ── CHART CARD ── */
+.chart-card{background:var(--white);border-radius:12px;border:1px solid var(--lgrey);padding:1.25rem;margin-bottom:1rem;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+.cc-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.9rem}
+.cc-title{font-family:'DM Serif Display',serif;font-size:1.15rem;color:var(--black)}
+.cc-sub{font-size:.72rem;color:var(--muted);margin-top:2px}
+.cc-tag{font-size:.62rem;background:var(--blush);color:var(--crimson);padding:2px 8px;border-radius:10px;font-weight:500;flex-shrink:0;margin-left:.5rem;margin-top:2px}
+
+/* ── METRIC SUMMARY STRIP ── */
+.sum-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-bottom:1rem}
+.sc{background:var(--white);border-radius:9px;padding:.8rem 1rem;border:1px solid var(--lgrey);border-top:3px solid var(--red)}
+.sc.p{border-top-color:var(--plum)}
+.sc.g{border-top-color:var(--green)}
+.sc.o{border-top-color:var(--orange)}
+.sc.t{border-top-color:var(--teal)}
+.sc.c{border-top-color:var(--crimson)}
+.sc-v{font-family:'DM Serif Display',serif;font-size:1.5rem;color:var(--black);line-height:1}
+.sc-l{font-size:.65rem;color:var(--muted);margin-top:3px}
+
+/* ── AI BOX ── */
+.ai-box{background:#f3eaf8;border-radius:10px;border-left:3px solid var(--plum);padding:1rem 1.1rem;margin-bottom:1rem}
+.ai-lbl{font-size:.65rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--plum);margin-bottom:6px;display:flex;align-items:center;gap:7px}
+.spinner{width:11px;height:11px;border:2px solid rgba(181,89,140,.25);border-top-color:var(--plum);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.prog-bar{height:3px;background:var(--lgrey);border-radius:2px;overflow:hidden;margin-bottom:8px}
+.prog-fill{height:100%;background:var(--plum);border-radius:2px;transition:width .3s}
+.ai-text{font-size:.82rem;color:var(--black);line-height:1.6}
+
+/* ── DOWNLOAD ROW ── */
+.dl-row{display:flex;gap:8px;margin-top:.75rem}
+.dl-btn{flex:1;padding:10px;border-radius:8px;border:1px solid var(--lgrey);background:var(--white);cursor:pointer;font-size:.78rem;font-weight:500;color:var(--black);display:flex;align-items:center;justify-content:center;gap:6px;font-family:'DM Sans',sans-serif;transition:all .12s}
+.dl-btn:hover{background:var(--off);border-color:var(--plum)}
+.dl-btn.primary{background:var(--black);color:var(--white);border-color:var(--black)}
+.dl-btn.primary:hover{background:#3a3833}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--black);color:var(--white);padding:.75rem 1.25rem;border-radius:10px;font-size:.82rem;font-weight:500;display:flex;align-items:center;gap:8px;z-index:999;transform:translateY(100px);opacity:0;transition:all .3s;box-shadow:0 4px 20px rgba(0,0,0,.2)}
+.toast.show{transform:translateY(0);opacity:1}
+.toast .t-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
+
+@media(max-width:860px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:static;height:auto}
+  .sum-strip{grid-template-columns:repeat(3,1fr)}
+  .thumb-grid{grid-template-columns:repeat(3,1fr)}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="brand">
+    <span class="brand-name">Flow Metrics Report Builder</span>
+    <div class="brand-sep"></div>
+    <span class="brand-sub">Pandora · PACE · Digital &amp; Technology</span>
+  </div>
+  <span class="badge">BETA</span>
+</header>
+
+<div class="layout">
+
+  <!-- ══════════════════ SIDEBAR ══════════════════ -->
+  <aside class="sidebar">
+
+    <!-- Step 1: Upload -->
+    <div class="step">
+      <div class="step-head">
+        <div class="snum" id="snum1">1</div>
+        <span class="slabel">Upload your Jira CSV</span>
+      </div>
+
+      <div class="drop-zone" id="dropZone"
+           ondragover="onDragOver(event)"
+           ondragleave="onDragLeave(event)"
+           ondrop="onDrop(event)">
+        <input type="file" id="fileInput" accept=".csv,.xlsx" onchange="onFileSelect(event)">
+        <span class="drop-icon" id="dropIcon">📂</span>
+        <div class="drop-title" id="dropTitle">Drag &amp; drop your Jira CSV here</div>
+        <div class="drop-sub" id="dropSub">or click to browse your files</div>
+        <span class="drop-pill" id="dropPill">CSV / Excel export from Jira</span>
+      </div>
+
+      <div id="statsRow" style="display:none">
+        <div class="stats-row" id="statsCards"></div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Step 2: Team details -->
+    <div class="step">
+      <div class="step-head">
+        <div class="snum" id="snum2">2</div>
+        <span class="slabel">Team &amp; report details</span>
+      </div>
+      <div class="igrid" style="margin-bottom:5px">
+        <input type="text" id="teamName" placeholder="Team name" oninput="refreshPreview()">
+        <input type="text" id="period"   placeholder="Period (e.g. May 2026)" oninput="refreshPreview()">
+      </div>
+      <div class="igrid">
+        <input type="text" id="smName"  placeholder="SM / DM name" oninput="refreshPreview()">
+        <select id="lang" onchange="refreshPreview()">
+          <option value="en">English</option>
+          <option value="da">Danish</option>
+        </select>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Step 3: Metrics -->
+    <div class="step">
+      <div class="step-head">
+        <div class="snum" id="snum3">3</div>
+        <span class="slabel">Select metrics to include</span>
+      </div>
+      <div class="sec">Flow metrics</div>
+      <div class="mgrid" id="flowGrid"></div>
+      <div class="sec" style="margin-top:6px">Quality &amp; testing metrics</div>
+      <div class="mgrid" id="qualGrid"></div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Step 4: Format -->
+    <div class="step">
+      <div class="step-head">
+        <div class="snum" id="snum4">4</div>
+        <span class="slabel">Output format</span>
+      </div>
+      <div class="frow">
+        <button class="fb on" id="fPptx" onclick="setFmt('pptx')">📊 PowerPoint</button>
+        <button class="fb"    id="fPdf"  onclick="setFmt('pdf')">📄 PDF</button>
+      </div>
+    </div>
+
+    <button class="gbtn" id="genBtn" onclick="generate()" disabled>
+      <div class="rdot"></div>
+      Generate Report
+    </button>
+
+  </aside>
+
+  <!-- ══════════════════ MAIN PANEL ══════════════════ -->
+  <main class="main">
+
+    <!-- Empty state -->
+    <div class="empty" id="emptyState">
+      <div class="empty-arrow">←</div>
+      <div class="empty-icon">📊</div>
+      <div class="empty-title">Drop your CSV to get started</div>
+      <div class="empty-sub">Upload your Jira export, pick the metrics you need, and generate a stakeholder-ready report in seconds.</div>
+    </div>
+
+    <!-- Report content -->
+    <div id="reportContent" style="display:none">
+
+      <div class="preview-head">
+        <h2 class="preview-h1">Report preview</h2>
+        <span class="slide-badge" id="slideBadge">0 slides</span>
+      </div>
+
+      <!-- Slide thumbnails -->
+      <div class="thumb-grid" id="thumbGrid"></div>
+
+      <!-- Active slide chart -->
+      <div class="chart-card" id="chartCard">
+        <div class="cc-head">
+          <div>
+            <div class="cc-title" id="ccTitle">—</div>
+            <div class="cc-sub"   id="ccSub">Select a slide above to preview</div>
+          </div>
+          <span class="cc-tag" id="ccTag"></span>
+        </div>
+        <div id="ccBody" style="min-height:180px;position:relative"></div>
+      </div>
+
+      <!-- Metric summary strip -->
+      <div class="sum-strip" id="sumStrip"></div>
+
+      <!-- AI coaching box (shown after generate) -->
+      <div class="ai-box" id="aiBox" style="display:none">
+        <div class="ai-lbl">
+          <span class="spinner" id="aiSpinner" style="display:none"></span>
+          AI Coaching Summary
+        </div>
+        <div class="prog-bar" id="progBar" style="display:none">
+          <div class="prog-fill" id="progFill" style="width:0%"></div>
+        </div>
+        <div class="ai-text" id="aiText"></div>
+      </div>
+
+      <!-- Download row -->
+      <div class="dl-row" id="dlRow" style="display:none">
+        <button class="dl-btn" onclick="dlCSV()">📋 Download summary CSV</button>
+        <button class="dl-btn primary" id="dlMain" onclick="dlReport()">⬇ Download PowerPoint</button>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"><div class="t-dot"></div><span id="toastMsg"></span></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   DATA
+═══════════════════════════════════════════════════════════ */
+const FLOW = [
+  {id:'cycle_time', name:'Cycle Time',          desc:'Avg days from start to done',  tag:'f', color:'#F3271E', icon:'⏱'},
+  {id:'throughput', name:'Throughput',           desc:'Items completed per period',   tag:'f', color:'#B5598C', icon:'📈'},
+  {id:'wip',        name:'WIP Status',           desc:'Work in progress by column',   tag:'f', color:'#24231F', icon:'📌'},
+  {id:'lead_time',  name:'Lead Time',            desc:'Created to done total',        tag:'f', color:'#C97A2A', icon:'⌛'},
+  {id:'forecast',   name:"Yesterday's Weather",  desc:'PERT-based forecast formula',  tag:'f', color:'#2E7D5E', icon:'🌤'},
+  {id:'cfd',        name:'Created vs Resolved',  desc:'Demand vs delivery trend',     tag:'f', color:'#1C6B7A', icon:'↔'},
+];
+const QUAL = [
+  {id:'defect_ratio', name:'Defect Ratio',        desc:'Bugs vs stories per period',  tag:'q', color:'#C0392B', icon:'🐛'},
+  {id:'escape_rate',  name:'Defect Escape Rate',  desc:'Bugs found after Done',       tag:'q', color:'#B5598C', icon:'🚨'},
+  {id:'avg_age',      name:'Avg Age of Bugs',     desc:'Days open bugs exist',        tag:'q', color:'#C97A2A', icon:'📅'},
+  {id:'wip_age',      name:'WIP Age',             desc:'Oldest active items',         tag:'q', color:'#1C6B7A', icon:'🕰'},
+];
+
+let sel     = new Set(['cycle_time','throughput','wip']);
+let fmt     = 'pptx';
+let rows    = [];
+let stats   = {};
+let active  = 0;
+let chartInst = {};
+
+/* ═══════════════════════════════════════════════════════════
+   DRAG & DROP
+═══════════════════════════════════════════════════════════ */
+function onDragOver(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.add('drag-over');
+}
+function onDragLeave(e) {
+  document.getElementById('dropZone').classList.remove('drag-over');
+}
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if(file) loadFile(file);
+}
+function onFileSelect(e) {
+  const file = e.target.files[0];
+  if(file) loadFile(file);
+}
+function loadFile(file) {
+  if(!file.name.match(/\.(csv|xlsx)$/i)) { toast('Please upload a CSV or Excel file','error'); return; }
+  Papa.parse(file, { header:true, skipEmptyLines:true, complete:(r)=>{
+    rows = r.data;
+    calcStats(rows);
+    const dz = document.getElementById('dropZone');
+    dz.classList.add('loaded');
+    dz.classList.remove('drag-over');
+    document.getElementById('dropIcon').textContent = '✅';
+    document.getElementById('dropTitle').textContent = file.name;
+    document.getElementById('dropSub').textContent = rows.length+' issues loaded successfully';
+    document.getElementById('dropPill').textContent = '✓ Ready to generate';
+    document.getElementById('snum1').classList.add('done');
+    document.getElementById('statsRow').style.display='block';
+    checkReady(); refreshPreview();
+    toast(rows.length+' issues loaded from '+file.name);
+  }, error:()=>toast('Could not parse file — check it is a valid CSV','error')});
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STATS
+═══════════════════════════════════════════════════════════ */
+function pd(str) {
+  if(!str) return null;
+  let d = new Date(str);
+  if(!isNaN(d)) return d;
+  const m = str.match(/(\d+)\/(\w+)\/(\d+)/);
+  if(m) { d=new Date(m[2]+' '+m[1]+' '+m[3]); return isNaN(d)?null:d; }
+  return null;
+}
+function calcStats(data) {
+  const sm={}, tm={};
+  let done=0, bugs=0, stories=0;
+  const ct=[], lt=[];
+  data.forEach(r=>{
+    const status = (r['Status']||'').trim();
+    const cat    = (r['Status Category']||'').trim();
+    const type   = (r['Issue Type']||'').trim();
+    sm[status]   = (sm[status]||0)+1;
+    tm[type]     = (tm[type]||0)+1;
+    if(cat==='Done'||status==='Done') done++;
+    if(type==='Bug') bugs++;
+    if(type==='Story') stories++;
+    const c = pd(r['Created']);
+    const res = pd(r['Resolved']||r['Custom field (Resolution date)']);
+    const chg = pd(r['Status Category Changed']);
+    if(c&&res){ const d=Math.round((res-c)/864e5); if(d>=0&&d<365) lt.push(d); }
+    if(c&&chg&&(cat==='Done'||status==='Done')){ const d=Math.round((chg-c)/864e5); if(d>=0&&d<365) ct.push(d); }
+  });
+  const ACTIVE = ['In Progress','Verify','In Review','Selected for Development','In Testing'];
+  const wip = ACTIVE.reduce((a,s)=>a+(sm[s]||0),0);
+  const avgCT = ct.length ? Math.round(ct.reduce((a,b)=>a+b,0)/ct.length) : null;
+  const avgLT = lt.length ? Math.round(lt.reduce((a,b)=>a+b,0)/lt.length) : null;
+  const minCT = ct.length ? Math.min(...ct) : null;
+  const maxCT = ct.length ? Math.max(...ct) : null;
+  const pert  = (minCT!==null&&avgCT!==null&&maxCT!==null) ? Math.round((minCT+4*avgCT+maxCT)/6) : null;
+  const dr    = stories>0 ? (bugs/stories).toFixed(2) : null;
+  stats = { total:data.length, done, wip, ct, lt, avgCT, avgLT, minCT, maxCT, pert, bugs, stories, dr, sm, tm };
+
+  document.getElementById('statsCards').innerHTML = [
+    {v:data.length, l:'Total issues', c:''},
+    {v:done,        l:'Completed',    c:'g'},
+    {v:wip,         l:'WIP now',      c:'p'},
+    {v:avgCT!==null?avgCT+'d':'N/A', l:'Avg cycle', c:'o'},
+  ].map(s=>`<div class="s-pill ${s.c}"><div class="sv">${s.v}</div><div class="sl">${s.l}</div></div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   METRIC GRID RENDER
+═══════════════════════════════════════════════════════════ */
+function renderGrids() {
+  ['flowGrid','qualGrid'].forEach(id=>{
+    const items = id==='flowGrid' ? FLOW : QUAL;
+    document.getElementById(id).innerHTML = items.map(m=>`
+      <div class="mt ${sel.has(m.id)?'on':''}" onclick="toggleM('${m.id}')">
+        <div class="mcheck">${sel.has(m.id)?'✓':''}</div>
+        <div>
+          <div class="mname">${m.name}</div>
+          <div class="mdesc">${m.desc}</div>
+          <span class="mtag tag-${m.tag}">${m.tag==='f'?'flow':'quality'}</span>
+        </div>
+      </div>`).join('');
+  });
+}
+function toggleM(id) {
+  sel.has(id)?sel.delete(id):sel.add(id);
+  renderGrids(); refreshPreview(); checkReady();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FORMAT
+═══════════════════════════════════════════════════════════ */
+function setFmt(f) {
+  fmt=f;
+  document.getElementById('fPptx').className='fb'+(f==='pptx'?' on':'');
+  document.getElementById('fPdf').className='fb'+(f==='pdf'?' on':'');
+  const btn=document.getElementById('dlMain');
+  if(btn) btn.textContent='⬇ Download '+f.toUpperCase();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SLIDES
+═══════════════════════════════════════════════════════════ */
+function buildSlides() {
+  const base=[
+    {id:'cover',   name:'Cover slide',   type:'Title',    color:'#24231F', icon:'📊'},
+    {id:'summary', name:'Team summary',  type:'Overview', color:'#B5598C', icon:'📋'},
+  ];
+  const chosen=[...FLOW,...QUAL].filter(m=>sel.has(m.id)).map(m=>({...m,type:'Metric'}));
+  return [...base,...chosen];
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PREVIEW
+═══════════════════════════════════════════════════════════ */
+function refreshPreview() {
+  const slides = buildSlides();
+  const hasData = rows.length>0;
+  document.getElementById('emptyState').style.display = hasData?'none':'flex';
+  document.getElementById('reportContent').style.display = hasData?'block':'none';
+  if(!hasData) return;
+
+  document.getElementById('slideBadge').textContent = slides.length+' slides';
+  document.getElementById('thumbGrid').innerHTML = slides.map((s,i)=>`
+    <div class="thumb ${i===active?'active':''}" onclick="setSlide(${i})">
+      <div class="thumb-vis" style="background:${s.color}18">${s.icon}</div>
+      <div class="thumb-foot">
+        <div class="thumb-name">${s.name}</div>
+        <div class="thumb-type">${s.type}</div>
+      </div>
+    </div>`).join('');
+
+  renderSummaryStrip();
+  renderSlide(slides[active]||slides[0]);
+}
+
+function setSlide(i) {
+  active=i;
+  document.querySelectorAll('.thumb').forEach((el,j)=>el.classList.toggle('active',j===i));
+  renderSlide(buildSlides()[i]);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SLIDE DETAIL
+═══════════════════════════════════════════════════════════ */
+function renderSlide(slide) {
+  if(!slide) return;
+  document.getElementById('ccTitle').textContent = slide.name;
+  document.getElementById('ccTag').textContent   = slide.type;
+  document.getElementById('ccTag').style.background = slide.color+'22';
+  document.getElementById('ccTag').style.color = slide.color;
+  Object.values(chartInst).forEach(c=>{try{c.destroy()}catch(e){}});
+  chartInst={};
+
+  const body = document.getElementById('ccBody');
+  const team   = document.getElementById('teamName').value||'Your Team';
+  const period = document.getElementById('period').value||'Current period';
+  const s = stats;
+
+  if(slide.id==='cover') {
+    document.getElementById('ccSub').textContent='Title slide preview';
+    body.innerHTML=`
+      <div style="background:#24231F;border-radius:10px;padding:1.5rem;color:white;min-height:160px;display:flex;flex-direction:column;justify-content:space-between">
+        <div>
+          <div style="font-size:.68rem;color:#F796A1;letter-spacing:1.2px;margin-bottom:.5rem;text-transform:uppercase">Kanban Metrics Report</div>
+          <div style="font-family:'DM Serif Display',serif;font-size:1.7rem;line-height:1.2">${team}</div>
+          <div style="color:#F796A1;font-size:.9rem;margin-top:.3rem">${period}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:1rem">
+          <div style="width:24px;height:3px;background:#F3271E;border-radius:2px"></div>
+          <div style="font-size:.68rem;color:#666">Pandora · PACE · Digital & Technology</div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if(slide.id==='summary') {
+    document.getElementById('ccSub').textContent='Key numbers at a glance for '+period;
+    if(!rows.length){body.innerHTML=noData();return;}
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        ${[
+          {v:s.total,l:'Total issues',c:'#F3271E'},
+          {v:s.done, l:'Completed',   c:'#2E7D5E'},
+          {v:s.wip,  l:'WIP now',     c:'#B5598C'},
+          {v:s.avgCT!==null?s.avgCT+'d':'N/A', l:'Avg cycle time', c:'#C97A2A'},
+          {v:s.bugs, l:'Bug count',   c:'#C0392B'},
+          {v:s.stories,l:'Stories',   c:'#1C6B7A'},
+        ].map(x=>`<div style="background:${x.c}12;border-left:3px solid ${x.c};border-radius:8px;padding:10px 12px">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:#24231F">${x.v}</div>
+          <div style="font-size:.68rem;color:#7A6A6D;margin-top:2px">${x.l}</div>
+        </div>`).join('')}
+      </div>`;
+    return;
+  }
+
+  if(!rows.length){document.getElementById('ccSub').textContent='Upload CSV to see chart';body.innerHTML=noData();return;}
+
+  /* ── CYCLE TIME ── */
+  if(slide.id==='cycle_time') {
+    document.getElementById('ccSub').textContent='Distribution of completed item durations';
+    if(!s.ct.length){body.innerHTML=noData('No resolved items found');return;}
+    const bins=[0,0,0,0,0,0],lbls=['1–3d','4–7d','8–14d','15–21d','22–30d','30d+'];
+    s.ct.forEach(d=>{if(d<=3)bins[0]++;else if(d<=7)bins[1]++;else if(d<=14)bins[2]++;else if(d<=21)bins[3]++;else if(d<=30)bins[4]++;else bins[5]++;});
+    body.innerHTML='<canvas id="ctC" style="max-height:190px"></canvas>';
+    chartInst.ct=new Chart(document.getElementById('ctC'),{type:'bar',data:{labels:lbls,datasets:[{data:bins,backgroundColor:'#F3271E33',borderColor:'#F3271E',borderWidth:2,borderRadius:5}]},options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.parsed.y+' items'}}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}});
+  }
+
+  /* ── THROUGHPUT ── */
+  else if(slide.id==='throughput') {
+    document.getElementById('ccSub').textContent='Items resolved per week';
+    const wks={};
+    rows.forEach(r=>{
+      const d=pd(r['Resolved']||r['Custom field (Resolution date)']);
+      if(!d)return;
+      const wk='W'+getWk(d)+' '+String(d.getFullYear()).slice(2);
+      wks[wk]=(wks[wk]||0)+1;
+    });
+    const keys=Object.keys(wks).sort().slice(-10);
+    if(!keys.length){body.innerHTML=noData('No resolved items found');return;}
+    body.innerHTML='<canvas id="tpC" style="max-height:190px"></canvas>';
+    chartInst.tp=new Chart(document.getElementById('tpC'),{type:'bar',data:{labels:keys,datasets:[{label:'Resolved',data:keys.map(k=>wks[k]),backgroundColor:'#B5598C33',borderColor:'#B5598C',borderWidth:2,borderRadius:5}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}});
+  }
+
+  /* ── WIP ── */
+  else if(slide.id==='wip') {
+    document.getElementById('ccSub').textContent='Current work in progress by status column';
+    const excl=['Done','To Do','Backlog','Proposed','Rejected','Archived'];
+    const active=Object.entries(s.sm).filter(([st])=>!excl.includes(st));
+    if(!active.length){body.innerHTML=noData('No active WIP columns found');return;}
+    const cols=['#F3271E','#B5598C','#C97A2A','#2E7D5E','#1C6B7A','#24231F'];
+    body.innerHTML='<canvas id="wipC" style="max-height:190px"></canvas>';
+    chartInst.wip=new Chart(document.getElementById('wipC'),{type:'doughnut',data:{labels:active.map(([st])=>st),datasets:[{data:active.map(([,v])=>v),backgroundColor:active.map((_,i)=>cols[i%cols.length]+'88'),borderColor:active.map((_,i)=>cols[i%cols.length]),borderWidth:2}]},options:{plugins:{legend:{position:'right',labels:{font:{size:11},padding:12}}},cutout:'60%'}});
+  }
+
+  /* ── LEAD TIME ── */
+  else if(slide.id==='lead_time') {
+    document.getElementById('ccSub').textContent='P50 = typical; P85 = safe stakeholder commitment';
+    if(!s.lt.length){body.innerHTML=noData('No resolved items with lead time data');return;}
+    const sorted=[...s.lt].sort((a,b)=>a-b);
+    const p50=sorted[Math.floor(sorted.length*.5)];
+    const p85=sorted[Math.floor(sorted.length*.85)];
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:1rem">
+        ${[
+          {v:Math.min(...s.lt)+'d',l:'Minimum',  c:'#1C6B7A'},
+          {v:p50+'d',              l:'P50 median',c:'#2E7D5E'},
+          {v:p85+'d',              l:'P85 SLA',   c:'#C97A2A'},
+          {v:Math.max(...s.lt)+'d',l:'Maximum',   c:'#C0392B'},
+        ].map(x=>`<div style="background:${x.c}12;border-top:3px solid ${x.c};border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#24231F">${x.v}</div>
+          <div style="font-size:.68rem;color:#7A6A6D;margin-top:2px">${x.l}</div>
+        </div>`).join('')}
+      </div>
+      <canvas id="ltC" style="max-height:130px"></canvas>`;
+    const ltBins=[0,0,0,0,0,0],lbls=['1–3d','4–7d','8–14d','15–21d','22–30d','30d+'];
+    s.lt.forEach(d=>{if(d<=3)ltBins[0]++;else if(d<=7)ltBins[1]++;else if(d<=14)ltBins[2]++;else if(d<=21)ltBins[3]++;else if(d<=30)ltBins[4]++;else ltBins[5]++;});
+    chartInst.lt=new Chart(document.getElementById('ltC'),{type:'bar',data:{labels:lbls,datasets:[{data:ltBins,backgroundColor:'#C97A2A33',borderColor:'#C97A2A',borderWidth:2,borderRadius:5}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}});
+  }
+
+  /* ── FORECAST ── */
+  else if(slide.id==='forecast') {
+    document.getElementById('ccSub').textContent="PERT-based forecast using historical throughput";
+    if(s.minCT===null){body.innerHTML=noData('Need resolved items to calculate forecast');return;}
+    body.innerHTML=`
+      <div style="background:#f2f8f5;border-radius:10px;padding:1.25rem;border-left:4px solid #2E7D5E">
+        <div style="font-size:.68rem;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:#2E7D5E;margin-bottom:.75rem">PERT Forecast Formula</div>
+        <div style="font-size:.88rem;color:#24231F;margin-bottom:.9rem;font-family:'DM Serif Display',serif">( Min + (4 × Avg) + Max ) ÷ 6</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          ${[
+            {v:s.minCT+'d',  l:'Min',      c:'#1C6B7A'},
+            {v:s.avgCT+'d',  l:'Avg (×4)',  c:'#C97A2A'},
+            {v:s.maxCT+'d',  l:'Max',       c:'#C0392B'},
+            {v:s.pert+'d',   l:'Forecast',  c:'#2E7D5E',bg:true},
+          ].map(x=>`<div style="text-align:center;padding:10px;background:${x.bg?x.c:'white'};border-radius:8px;border:1px solid ${x.c}22">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:${x.bg?'white':x.c}">${x.v}</div>
+            <div style="font-size:.65rem;color:${x.bg?'#9fdfc4':'#7A6A6D'};margin-top:2px">${x.l}</div>
+          </div>`).join('')}
+        </div>
+        <div style="margin-top:1rem;font-size:.78rem;color:#5a7a6d;line-height:1.5">
+          Tell your stakeholders: <em>"Based on our last ${s.ct.length} completed items, we expect to deliver in around <strong>${s.pert} days</strong>. Minimum ${s.minCT}d, maximum ${s.maxCT}d."</em>
+        </div>
+      </div>`;
+  }
+
+  /* ── CREATED VS RESOLVED ── */
+  else if(slide.id==='cfd') {
+    document.getElementById('ccSub').textContent='Created items vs Resolved items — demand vs delivery';
+    const cW={},rW={};
+    rows.forEach(r=>{
+      const c=pd(r['Created']);
+      const res=pd(r['Resolved']||r['Custom field (Resolution date)']);
+      if(c){const w='W'+getWk(c)+'/'+String(c.getFullYear()).slice(2);cW[w]=(cW[w]||0)+1;}
+      if(res){const w='W'+getWk(res)+'/'+String(res.getFullYear()).slice(2);rW[w]=(rW[w]||0)+1;}
+    });
+    const allW=[...new Set([...Object.keys(cW),...Object.keys(rW)])].sort().slice(-10);
+    if(!allW.length){body.innerHTML=noData('Insufficient date data');return;}
+    body.innerHTML='<canvas id="cvrC" style="max-height:190px"></canvas>';
+    chartInst.cvr=new Chart(document.getElementById('cvrC'),{type:'line',data:{labels:allW,datasets:[
+      {label:'Created', data:allW.map(k=>cW[k]||0),borderColor:'#F3271E',backgroundColor:'#F3271E18',fill:true,tension:.35,pointRadius:4,pointBackgroundColor:'#F3271E'},
+      {label:'Resolved',data:allW.map(k=>rW[k]||0),borderColor:'#2E7D5E',backgroundColor:'#2E7D5E18',fill:true,tension:.35,pointRadius:4,pointBackgroundColor:'#2E7D5E'},
+    ]},options:{plugins:{legend:{position:'top',labels:{font:{size:11},padding:12}}},scales:{y:{beginAtZero:true}}}});
+  }
+
+  /* ── DEFECT RATIO ── */
+  else if(slide.id==='defect_ratio') {
+    document.getElementById('ccSub').textContent='Are we going faster but also better?';
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="background:#ffe8e8;border-left:3px solid #C0392B;border-radius:8px;padding:1rem">
+          <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:#C0392B">${s.bugs}</div>
+          <div style="font-size:.7rem;color:#7A6A6D">Total bugs</div>
+        </div>
+        <div style="background:#e8f5ee;border-left:3px solid #2E7D5E;border-radius:8px;padding:1rem">
+          <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:#2E7D5E">${s.stories}</div>
+          <div style="font-size:.7rem;color:#7A6A6D">Total stories</div>
+        </div>
+      </div>
+      <div style="background:#FAF6F7;border-radius:8px;padding:1rem;text-align:center;border:1px solid #E8E0E2">
+        <div style="font-size:.65rem;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:#7A6A6D;margin-bottom:4px">Defect Ratio</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:2.2rem;color:#C0392B">${s.dr||'N/A'}</div>
+        <div style="font-size:.72rem;color:#7A6A6D;margin-top:3px">bugs per story${s.dr?' — '+(s.dr<0.3?'✅ Healthy':(s.dr<0.6?'⚠️ Monitor':'🚨 Act now')):''}</div>
+      </div>`;
+  }
+
+  /* ── ESCAPE RATE ── */
+  else if(slide.id==='escape_rate') {
+    document.getElementById('ccSub').textContent='Bugs found after stories marked Done — shift left signal';
+    const bugsDone = rows.filter(r=>(r['Issue Type']||'').trim()==='Bug'&&((r['Status Category']||'')==='Done'||(r['Status']||'')==='Done')).length;
+    body.innerHTML=`
+      <div style="background:#f3eaf8;border-left:4px solid #B5598C;border-radius:10px;padding:1.25rem">
+        <div style="font-size:.65rem;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:#B5598C;margin-bottom:.75rem">Defect Escape Signal</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div style="background:white;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:#C0392B">${s.bugs}</div>
+            <div style="font-size:.65rem;color:#7A6A6D">Total bugs</div>
+          </div>
+          <div style="background:white;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:#2E7D5E">${bugsDone}</div>
+            <div style="font-size:.65rem;color:#7A6A6D">Resolved</div>
+          </div>
+          <div style="background:white;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:#C97A2A">${s.bugs-bugsDone}</div>
+            <div style="font-size:.65rem;color:#7A6A6D">Still open</div>
+          </div>
+        </div>
+        <div style="margin-top:1rem;font-size:.75rem;color:#5a3a6a;line-height:1.5">A high escape rate signals quality gates happening too late. The goal is to catch bugs <em>before</em> the story reaches Done — not after.</div>
+      </div>`;
+  }
+
+  /* ── AVG AGE ── */
+  else if(slide.id==='avg_age') {
+    document.getElementById('ccSub').textContent='How long are known bugs sitting unresolved?';
+    const now=new Date();
+    const bugAges=rows.filter(r=>(r['Issue Type']||'').trim()==='Bug'&&(r['Status Category']||'').trim()!=='Done').map(r=>{
+      const c=pd(r['Created']); return c?Math.round((now-c)/864e5):null;
+    }).filter(d=>d!==null&&d<365);
+    if(!bugAges.length){body.innerHTML=noData('No open bugs found');return;}
+    const avgAge=Math.round(bugAges.reduce((a,b)=>a+b,0)/bugAges.length);
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C97A2A">${Math.min(...bugAges)}d</div>
+          <div style="font-size:.65rem;color:#7A6A6D">Youngest</div>
+        </div>
+        <div style="background:#fff3e0;border-top:3px solid #C0392B;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${avgAge}d</div>
+          <div style="font-size:.65rem;color:#7A6A6D">Average age</div>
+        </div>
+        <div style="background:#fff3e0;border-top:3px solid #C0392B;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${Math.max(...bugAges)}d</div>
+          <div style="font-size:.65rem;color:#7A6A6D">Oldest</div>
+        </div>
+      </div>
+      <div style="background:#FAF6F7;border-radius:8px;padding:.9rem;font-size:.78rem;color:#24231F;line-height:1.5">
+        ${avgAge>14?'⚠️ Average bug age exceeds 14 days — bugs are being accepted as normal. Challenge the team to set a maximum age policy.':'✅ Bugs are being addressed promptly. Keep the momentum going.'}
+      </div>`;
+  }
+
+  /* ── WIP AGE ── */
+  else if(slide.id==='wip_age') {
+    document.getElementById('ccSub').textContent='How long have active items been in progress?';
+    const now=new Date();
+    const ACTIVE=['In Progress','Verify','In Review','Selected for Development'];
+    const ages=rows.filter(r=>ACTIVE.includes((r['Status']||'').trim())).map(r=>{
+      const c=pd(r['Created']); return c?{name:(r['Summary']||'').slice(0,40),days:Math.round((now-c)/864e5)}:null;
+    }).filter(Boolean).sort((a,b)=>b.days-a.days).slice(0,5);
+    if(!ages.length){body.innerHTML=noData('No active WIP items found');return;}
+    body.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px">`+ages.map((a,i)=>`
+      <div style="display:flex;align-items:center;gap:10px;background:${a.days>14?'#fff3e0':a.days>7?'#fff8f0':'#f2f8f5'};border-radius:8px;padding:8px 12px;border-left:3px solid ${a.days>14?'#C0392B':a.days>7?'#C97A2A':'#2E7D5E'}">
+        <div style="font-family:'DM Serif Display',serif;font-size:1.2rem;color:${a.days>14?'#C0392B':a.days>7?'#C97A2A':'#2E7D5E'};width:40px;flex-shrink:0">${a.days}d</div>
+        <div style="font-size:.75rem;color:#24231F;flex:1">${a.name}${a.name.length===40?'…':''}</div>
+        <div style="font-size:.65rem;color:#7A6A6D">${a.days>14?'⚠️ Old':a.days>7?'Monitor':'OK'}</div>
+      </div>`).join('')+'</div>';
+  }
+
+  else {
+    document.getElementById('ccSub').textContent='';
+    body.innerHTML=`<div style="color:var(--muted);font-size:.82rem;padding:2rem;text-align:center">Preview for "${slide.name}"</div>`;
+  }
+}
+
+function noData(msg='Upload CSV to see this chart') {
+  return `<div style="color:var(--muted);font-size:.82rem;padding:2.5rem;text-align:center;background:var(--off);border-radius:8px">${msg}</div>`;
+}
+
+function renderSummaryStrip() {
+  const s=stats;
+  if(!rows.length){document.getElementById('sumStrip').innerHTML='';return;}
+  document.getElementById('sumStrip').innerHTML=[
+    {v:s.total,                              l:'Total issues',  c:''},
+    {v:s.done,                               l:'Completed',     c:'g'},
+    {v:s.wip,                                l:'WIP now',       c:'p'},
+    {v:s.avgCT!==null?s.avgCT+'d':'—',      l:'Avg cycle',     c:'o'},
+    {v:s.pert!==null?s.pert+'d':'—',        l:'PERT forecast', c:'t'},
+    {v:s.dr||'—',                            l:'Defect ratio',  c:'c'},
+  ].map(x=>`<div class="sc ${x.c}"><div class="sc-v">${x.v}</div><div class="sc-l">${x.l}</div></div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GENERATE
+═══════════════════════════════════════════════════════════ */
+async function generate() {
+  const btn=document.getElementById('genBtn');
+  btn.disabled=true; btn.textContent='Generating AI insights…';
+
+  const aiBox=document.getElementById('aiBox');
+  const aiText=document.getElementById('aiText');
+  const spinner=document.getElementById('aiSpinner');
+  const pBar=document.getElementById('progBar');
+  const pFill=document.getElementById('progFill');
+
+  aiBox.style.display='block';
+  spinner.style.display='inline-block';
+  pBar.style.display='block';
+  aiText.textContent='Analysing your flow data…';
+
+  let p=0;
+  const iv=setInterval(()=>{p=Math.min(p+5,88);pFill.style.width=p+'%'},200);
+
+  const team   = document.getElementById('teamName').value||'Team';
+  const period = document.getElementById('period').value||'Current period';
+  const sm     = document.getElementById('smName').value||'';
+  const s      = stats;
+  const chosen = [...sel].join(', ');
+
+  const prompt=`You are a Kanban flow coach at Pandora A/S (PACE team).
+Team: ${team}. Period: ${period}.${sm?' SM/DM: '+sm+'.':''}
+Data summary: ${s.total} total issues, ${s.done} completed, ${s.wip} in active WIP, average cycle time ${s.avgCT!==null?s.avgCT+' days':'insufficient data'}, PERT forecast ${s.pert!==null?s.pert+' days':'N/A'}, ${s.bugs} bugs, ${s.stories} stories, defect ratio ${s.dr||'N/A'}.
+Metrics selected for this report: ${chosen}.
+Write a 4–5 sentence coaching summary for stakeholders. Be specific about what the numbers show. Flag any concerns. Use plain conversational language. No bullet points. No markdown.`;
+
+  try {
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    const data=await res.json();
+    clearInterval(iv); pFill.style.width='100%'; spinner.style.display='none';
+    aiText.textContent=data.content?.[0]?.text||fallback(s,team,period);
+  } catch(e) {
+    clearInterval(iv); pFill.style.width='100%'; spinner.style.display='none';
+    aiText.textContent=fallback(s,team,period);
+  }
+
+  document.getElementById('dlRow').style.display='flex';
+  document.getElementById('dlMain').textContent='⬇ Download '+fmt.toUpperCase();
+  btn.classList.add('done'); btn.disabled=false;
+  btn.innerHTML='<div class="rdot"></div> Report ready — regenerate';
+  toast('Report generated successfully');
+}
+
+function fallback(s,team,period) {
+  return `${team} has ${s.total} issues tracked for ${period}, with ${s.done} completed and ${s.wip} currently active. ${s.avgCT!==null?'Average cycle time is '+s.avgCT+' days.':''} ${s.pert!==null?'The PERT forecast suggests expecting around '+s.pert+' days per item.':''} ${s.bugs>0?'There are '+s.bugs+' bugs in the backlog — worth monitoring the defect ratio trend over time.':''}`.trim();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DOWNLOADS
+═══════════════════════════════════════════════════════════ */
+function dlCSV() {
+  const s=stats;
+  const rows=[
+    ['Metric','Value'],
+    ['Total issues',s.total],['Completed',s.done],['WIP (active)',s.wip],
+    ['Avg cycle time (days)',s.avgCT||'N/A'],['Avg lead time (days)',s.avgLT||'N/A'],
+    ['Min cycle time (days)',s.minCT||'N/A'],['Max cycle time (days)',s.maxCT||'N/A'],
+    ['PERT forecast (days)',s.pert||'N/A'],['Bug count',s.bugs],
+    ['Story count',s.stories],['Defect ratio',s.dr||'N/A'],
+  ];
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  dl(new Blob([csv],{type:'text/csv'}),(document.getElementById('teamName').value||'team').replace(/\s+/g,'_')+'_flow_metrics.csv');
+  toast('CSV downloaded');
+}
+
+function dlReport() {
+  alert(`To generate the actual ${fmt.toUpperCase()} file:\n\n1. Copy the AI summary above\n2. Go back to Claude and say:\n   "Build the ${fmt.toUpperCase()} report for ${document.getElementById('teamName').value||'the team'} with these metrics: ${[...sel].join(', ')}"\n\nClaude will create and download the file.\n\nNote: Direct file generation from the browser requires a backend — this will be added in the next version.`);
+}
+
+function dl(blob,name) {
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name; a.click();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════ */
+function getWk(d) {
+  const s=new Date(d.getFullYear(),0,1);
+  return Math.ceil(((d-s)/864e5+s.getDay()+1)/7);
+}
+function checkReady() {
+  document.getElementById('genBtn').disabled = !(rows.length>0&&sel.size>0);
+}
+function toast(msg,type='success') {
+  const t=document.getElementById('toast');
+  const dot=t.querySelector('.t-dot');
+  document.getElementById('toastMsg').textContent=msg;
+  dot.style.background=type==='error'?'#F3271E':'#2E7D5E';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════════ */
+renderGrids();
+refreshPreview();
+</script>
+</body>
+</html>
