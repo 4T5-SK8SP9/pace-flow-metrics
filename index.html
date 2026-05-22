@@ -238,7 +238,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
   .thumb-grid{grid-template-columns:repeat(3,1fr)}
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"></script>
 </head>
 <body>
 
@@ -357,6 +356,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
           <option value="en">English</option>
           <option value="da">Danish</option>
         </select>
+      </div>
+      <div class="igrid" style="margin-top:5px">
+        <input type="number" id="teamSize" placeholder="Team size (no. of people)" min="1" max="50" oninput="refreshPreview()" style="border-left:3px solid var(--plum)">
+        <div style="background:var(--off);border-radius:7px;border:1px solid var(--lgrey);padding:6px 9px;font-size:.7rem;color:var(--muted);display:flex;align-items:center">
+          Used for WIP ratio calculation
+        </div>
       </div>
       <div class="date-range-bar" id="dateRangeBar">
         <div>
@@ -737,13 +742,68 @@ function renderSlide(slide) {
 
   /* ── WIP ── */
   else if(slide.id==='wip') {
-    document.getElementById('ccSub').textContent='Current work in progress by status column';
+    const teamSize = parseInt(document.getElementById('teamSize').value)||0;
+    document.getElementById('ccSub').textContent='WIP analysis'+(teamSize?' — team of '+teamSize:'');
     const excl=['Done','To Do','Backlog','Proposed','Rejected','Archived'];
     const active=Object.entries(s.sm).filter(([st])=>!excl.includes(st));
+    const totalWip = active.reduce((a,[,v])=>a+v,0);
+
     if(!active.length){body.innerHTML=noData('No active WIP columns found');return;}
+
+    let wipHtml = '';
+
+    // If team size provided — show ratio analysis
+    if(teamSize > 0) {
+      const ratio = (totalWip/teamSize).toFixed(1);
+      const recommended = (teamSize*1.5).toFixed(0);
+      const status = ratio <= 1.0 ? 'under' : ratio <= 1.5 ? 'healthy' : 'over';
+      const statusColor = status==='healthy'?'#2E7D5E':status==='under'?'#1C6B7A':'#C0392B';
+      const statusLabel = status==='healthy'?'✅ Healthy focus':'⚠️ Too much parallel work';
+      const statusDesc  = status==='healthy'?'Team is in the optimal focus zone.':
+                          status==='under'?'Team may be under capacity or batching work.':
+                          'Cycle time will suffer. Stop starting, start finishing.';
+
+      wipHtml += `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+          <div style="background:${statusColor}12;border-top:3px solid ${statusColor};border-radius:8px;padding:10px;text-align:center">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.8rem;color:${statusColor}">${ratio}</div>
+            <div style="font-size:.68rem;color:#7A6A6D;margin-top:2px">WIP per person</div>
+          </div>
+          <div style="background:#FAF6F7;border-top:3px solid #B5598C;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.8rem;color:#B5598C">${totalWip}</div>
+            <div style="font-size:.68rem;color:#7A6A6D;margin-top:2px">Total WIP now</div>
+          </div>
+          <div style="background:#FAF6F7;border-top:3px solid #24231F;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-family:'DM Serif Display',serif;font-size:1.8rem;color:#24231F">${recommended}</div>
+            <div style="font-size:.68rem;color:#7A6A6D;margin-top:2px">Recommended max</div>
+          </div>
+        </div>
+        <div style="background:${statusColor}12;border-left:4px solid ${statusColor};border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:.82rem;font-weight:600;color:${statusColor}">${statusLabel}</div>
+            <div style="font-size:.74rem;color:#24231F;margin-top:2px">${statusDesc}</div>
+          </div>
+          <div style="font-size:1.8rem;margin-left:12px">${status==='healthy'?'🎯':status==='under'?'💤':'🚨'}</div>
+        </div>`;
+    } else {
+      wipHtml += `<div style="background:#f3eaf8;border-left:3px solid #B5598C;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.78rem;color:#24231F">
+        💡 Enter team size in Step 2 to see WIP ratio per person</div>`;
+    }
+
+    // Column breakdown
+    wipHtml += `<div style="display:flex;gap:6px;flex-wrap:wrap">`;
     const cols=['#F3271E','#B5598C','#C97A2A','#2E7D5E','#1C6B7A','#24231F'];
-    body.innerHTML='<canvas id="wipC" style="max-height:190px"></canvas>';
-    chartInst.wip=new Chart(document.getElementById('wipC'),{type:'doughnut',data:{labels:active.map(([st])=>st),datasets:[{data:active.map(([,v])=>v),backgroundColor:active.map((_,i)=>cols[i%cols.length]+'88'),borderColor:active.map((_,i)=>cols[i%cols.length]),borderWidth:2}]},options:{plugins:{legend:{position:'right',labels:{font:{size:11},padding:12}}},cutout:'60%'}});
+    active.forEach(([st,cnt],i)=>{
+      const pct = totalWip>0?Math.round(cnt/totalWip*100):0;
+      wipHtml+=`<div style="background:${cols[i%cols.length]}12;border:1px solid ${cols[i%cols.length]}44;border-radius:7px;padding:7px 10px;flex:1;min-width:80px;text-align:center">
+        <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:${cols[i%cols.length]}">${cnt}</div>
+        <div style="font-size:.65rem;color:#7A6A6D;margin-top:1px">${st}</div>
+        <div style="font-size:.6rem;color:#aaa">${pct}%</div>
+      </div>`;
+    });
+    wipHtml += '</div>';
+
+    body.innerHTML = wipHtml;
   }
 
   /* ── LEAD TIME ── */
@@ -923,7 +983,7 @@ function renderSummaryStrip() {
   document.getElementById('sumStrip').innerHTML=[
     {v:s.total,                              l:'Total issues',  c:''},
     {v:s.done,                               l:'Completed',     c:'g'},
-    {v:s.wip,                                l:'WIP now',       c:'p'},
+    {v:(()=>{const ts=parseInt(document.getElementById('teamSize').value)||0; return ts>0?(s.wip+' ('+( s.wip/ts).toFixed(1)+'/person)'):String(s.wip);})(), l:'WIP now', c:'p'},
     {v:s.avgCT!==null?s.avgCT+'d':'—',      l:'Avg cycle',     c:'o'},
     {v:s.pert!==null?s.pert+'d':'—',        l:'PERT forecast', c:'t'},
     {v:s.dr||'—',                            l:'Defect ratio',  c:'c'},
@@ -1004,45 +1064,95 @@ function dlCSV() {
 
 async function dlReport() {
   const btn = document.getElementById('dlMain');
-  const team   = document.getElementById('teamName').value || 'Team';
-  const period = document.getElementById('period').value   || 'Current period';
-  const smName = document.getElementById('smName').value   || '';
-  const s = stats;
 
   if(fmt === 'pdf') {
     toast('PDF export coming soon — use PowerPoint for now','error');
     return;
   }
 
+  // Block if opened as local file — CDN libraries won't load
+  if(window.location.protocol === 'file:') {
+    showLocalFileWarning();
+    return;
+  }
+
+  const team   = document.getElementById('teamName').value || 'Team';
+  const period = document.getElementById('period').value   || 'Current period';
+  const smName = document.getElementById('smName').value   || '';
+  const s = stats;
+
   btn.disabled = true;
-  btn.textContent = 'Building slides...';
-  toast('Generating your PowerPoint...');
+  btn.textContent = '⏳ Loading library...';
 
   try {
+    // Load PptxGenJS dynamically if not already loaded
+    if(typeof PptxGenJS === 'undefined') {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js');
+    }
+    btn.textContent = '⏳ Building slides...';
+    toast('Generating your PowerPoint...');
     const aiSummary = document.getElementById('aiText').textContent ||
       team+' Flow Metrics Report — '+period+'. '+s.total+' issues tracked, '+s.done+' completed, '+s.wip+' in progress.';
-    await buildPptx(team, period, smName, s, aiSummary, [...sel]);
+    await buildPptx(team, period, smName, s, aiSummary, [...sel], parseInt(document.getElementById('teamSize').value)||0);
     btn.disabled = false;
-    btn.textContent = 'Downloaded!';
-    setTimeout(()=>{ btn.textContent='Download PowerPoint'; btn.disabled=false; }, 3000);
+    btn.textContent = '✅ Downloaded!';
+    setTimeout(()=>{ btn.textContent='⬇ Download PowerPoint'; btn.disabled=false; }, 3000);
     toast('PowerPoint downloaded successfully');
   } catch(err) {
     console.error(err);
     btn.disabled = false;
-    btn.textContent = 'Download PowerPoint';
-    toast('Error generating file — check console','error');
+    btn.textContent = '⬇ Download PowerPoint';
+    toast('Error: '+err.message,'error');
   }
 }
 
 function loadScript(src) {
   return new Promise((res, rej) => {
-    const s = document.createElement('script');
-    s.src = src; s.onload = res; s.onerror = rej;
-    document.head.appendChild(s);
+    const el = document.createElement('script');
+    el.src = src;
+    el.onload = res;
+    el.onerror = () => rej(new Error('Failed to load: '+src));
+    document.head.appendChild(el);
   });
 }
 
-async function buildPptx(team, period, smName, s, aiSummary, chosen) {
+function showLocalFileWarning() {
+  // Remove any existing modal
+  const existing = document.getElementById('localWarningModal');
+  if(existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'localWarningModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:14px;padding:2rem;max-width:460px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <div style="font-size:2rem;margin-bottom:.75rem">⚠️</div>
+      <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:#24231F;margin-bottom:.5rem">Open via GitHub Pages</div>
+      <div style="font-size:.85rem;color:#7A6A6D;line-height:1.6;margin-bottom:1.25rem">
+        You are opening this file directly from your computer (<code style="background:#f5f5f5;padding:1px 5px;border-radius:3px;font-size:.78rem">file://</code>). 
+        Browsers block external libraries when opened this way, so the PowerPoint export cannot load.<br><br>
+        To use the download feature, open the tool via its GitHub Pages URL:
+      </div>
+      <div style="background:#24231F;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:.8rem;color:#F796A1;margin-bottom:1.25rem;word-break:break-all">
+        https://4t5-sk8sp9.github.io/pace-flow-metrics
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="window.open('https://4t5-sk8sp9.github.io/pace-flow-metrics','_blank')" 
+          style="flex:1;padding:10px;background:#24231F;color:white;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">
+          Open GitHub Pages ↗
+        </button>
+        <button onclick="document.getElementById('localWarningModal').remove()" 
+          style="padding:10px 16px;background:#f5f5f5;color:#24231F;border:none;border-radius:8px;font-size:.82rem;cursor:pointer;font-family:'DM Sans',sans-serif">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if(e.target===modal) modal.remove(); });
+}
+
+async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_16x9';
   pptx.title  = team+' Flow Metrics '+period;
@@ -1180,12 +1290,53 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen) {
     else if(m.id==='wip') {
       const excl=['Done','To Do','Backlog','Proposed','Rejected','Archived'];
       const actv=Object.entries(s.sm).filter(function(e){return excl.indexOf(e[0])<0;});
+      const totalWip=actv.reduce(function(a,e){return a+e[1];},0);
+      const teamSz=parseInt(document.getElementById('teamSize').value)||0;
       const accs=[C.red,C.plum,C.orange,C.green,C.teal,C.black];
-      actv.slice(0,6).forEach(function(e,i){
-        const cx=0.35+(i%3)*3.15, cy=1.0+Math.floor(i/3)*1.8;
-        addMetricCard(sl,cx,cy,2.95,1.55,accs[i%accs.length],e[0],String(e[1]),'items in this column');
-      });
-      if(!actv.length) addTxt(sl,'No active WIP columns found.',0.5,2.5,9.0,0.5,12,C.muted,{italic:true});
+
+      if(teamSz>0) {
+        const ratio=(totalWip/teamSz).toFixed(1);
+        const recommended=Math.round(teamSz*1.5);
+        const isOver=parseFloat(ratio)>1.5;
+        const isUnder=parseFloat(ratio)<1.0;
+        const statusC=isOver?C.crimson:isUnder?C.teal:C.green;
+        const statusL=isOver?'Too much parallel work — stop starting, start finishing':
+                      isUnder?'Under capacity or batching — consider pulling more work':
+                      'Healthy focus zone';
+
+        // Ratio cards row
+        [
+          {l:'WIP Per Person', v:String(ratio), c:statusC},
+          {l:'Total WIP Now',  v:String(totalWip), c:C.plum},
+          {l:'Recommended Max',v:String(recommended), c:C.black},
+          {l:'Team Size',      v:String(teamSz), c:C.muted},
+        ].forEach(function(x,i){
+          addMetricCard(sl,0.35+i*2.40,1.0,2.20,1.40,x.c,x.l,x.v,'');
+        });
+
+        // Status banner
+        addRect(sl,0.35,2.58,9.30,0.72,statusC+'18',statusC,0.5);
+        addRect(sl,0.35,2.58,0.06,0.72,statusC);
+        addTxt(sl,isOver?'🚨':isUnder?'💤':'✅',0.48,2.65,0.50,0.58,18,statusC,{align:'center'});
+        addTxt(sl,statusL,1.05,2.68,8.40,0.52,11,C.black);
+
+        // Column breakdown
+        addTxt(sl,'WIP BY COLUMN',0.35,3.42,9.3,0.22,8,C.muted,{bold:true});
+        actv.slice(0,6).forEach(function(e,i){
+          const cx=0.35+(i%3)*3.15, cy=3.68+Math.floor(i/3)*0.90;
+          addRect(sl,cx,cy,2.95,0.78,accs[i%accs.length]+'18',accs[i%accs.length]+'44',0.5);
+          addTxt(sl,e[0],cx+0.10,cy+0.06,2.75,0.28,9,C.black,{bold:true});
+          addTxt(sl,String(e[1])+' items',cx+0.10,cy+0.40,2.75,0.28,9,accs[i%accs.length]);
+        });
+      } else {
+        // No team size — just show column breakdown
+        addTxt(sl,'Add team size in the report builder for WIP ratio analysis.',0.35,1.0,9.3,0.36,10,C.muted,{italic:true});
+        actv.slice(0,6).forEach(function(e,i){
+          const cx=0.35+(i%3)*3.15, cy=1.5+Math.floor(i/3)*1.8;
+          addMetricCard(sl,cx,cy,2.95,1.55,accs[i%accs.length],e[0],String(e[1]),'items in this column');
+        });
+        if(!actv.length) addTxt(sl,'No active WIP columns found.',0.5,2.5,9.0,0.5,12,C.muted,{italic:true});
+      }
     }
 
     else if(m.id==='lead_time' && s.lt.length) {
