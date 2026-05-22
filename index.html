@@ -218,6 +218,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
 .dl-btn.primary{background:var(--black);color:var(--white);border-color:var(--black)}
 .dl-btn.primary:hover{background:#3a3833}
 
+
+/* ── DATE RANGE BADGE ── */
+.date-range-bar{background:var(--black);border-radius:8px;padding:7px 12px;margin-top:.5rem;display:flex;align-items:center;justify-content:space-between;display:none}
+.date-range-bar.visible{display:flex}
+.dr-label{font-size:.68rem;color:#888;font-weight:500;letter-spacing:.5px;text-transform:uppercase}
+.dr-value{font-size:.78rem;color:var(--rose);font-weight:600;letter-spacing:.3px}
+.dr-days{font-size:.65rem;color:#666;background:#333;padding:2px 7px;border-radius:10px}
+
 /* ── TOAST ── */
 .toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--black);color:var(--white);padding:.75rem 1.25rem;border-radius:10px;font-size:.82rem;font-weight:500;display:flex;align-items:center;gap:8px;z-index:999;transform:translateY(100px);opacity:0;transition:all .3s;box-shadow:0 4px 20px rgba(0,0,0,.2)}
 .toast.show{transform:translateY(0);opacity:1}
@@ -349,6 +357,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
           <option value="en">English</option>
           <option value="da">Danish</option>
         </select>
+      </div>
+      <div class="date-range-bar" id="dateRangeBar">
+        <div>
+          <div class="dr-label">Report timeframe</div>
+          <div class="dr-value" id="dateRangeValue">—</div>
+        </div>
+        <div class="dr-days" id="dateRangeDays"></div>
       </div>
     </div>
 
@@ -1075,13 +1090,17 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen) {
   addRect(sl1,0,3.56,W,2.065,C.blush);
   addTxt(sl1,'KANBAN METRICS REPORT',0.7,0.7,8.6,0.35,9,C.rose,{bold:true});
   addTxt(sl1,team,0.7,1.1,8.6,1.0,36,C.white,{bold:true});
-  addTxt(sl1,period,0.7,2.05,8.6,0.55,22,C.rose);
+  addTxt(sl1,period,0.7,2.05,8.6,0.55,20,C.rose);
+  // Date range label
+  addRect(sl1,0.7,2.65,8.6,0.40,'33352F');
+  addTxt(sl1,'TIMEFRAME',0.88,2.68,2.0,0.24,7,C.muted,{bold:true});
+  addTxt(sl1,period,2.90,2.68,6.3,0.24,9,C.rose,{bold:true});
   if(smName) addTxt(sl1,smName,0.7,2.65,8.6,0.35,12,C.blush,{italic:true});
   addTxt(sl1,'Pandora PACE Digital and Technology',0.7,3.80,8.6,0.30,10,C.plum);
 
   // SLIDE 2: SUMMARY
   const sl2 = pptx.addSlide();
-  addHeader(sl2,'Team Summary','Key numbers at a glance for '+period);
+  addHeader(sl2,'Team Summary','Timeframe: '+period);
   const sumCards=[
     {l:'Total Issues',   v:String(s.total),                   c:C.red},
     {l:'Completed',      v:String(s.done),                    c:C.green},
@@ -1365,6 +1384,45 @@ function buildJql() {
   document.getElementById('jqlText').textContent = parts.join(' AND ');
   document.getElementById('jqlCopyBtn').textContent = 'Copy';
   document.getElementById('jqlCopyBtn').classList.remove('copied');
+
+  // Update date range bar
+  updateDateRange(days);
+}
+
+function updateDateRange(days) {
+  const bar   = document.getElementById('dateRangeBar');
+  const val   = document.getElementById('dateRangeValue');
+  const daysEl= document.getElementById('dateRangeDays');
+  const period= document.getElementById('period');
+
+  const today = new Date();
+  const fmt = d => String(d.getDate()).padStart(2,'0') + '.' +
+                   String(d.getMonth()+1).padStart(2,'0') + '.' +
+                   d.getFullYear();
+
+  if(!days || days === '0') {
+    val.textContent = 'All time → ' + fmt(today);
+    daysEl.textContent = 'All issues';
+    bar.classList.add('visible');
+    period.placeholder = 'All time';
+  } else {
+    const d = parseInt(days);
+    const from = new Date(today);
+    from.setDate(from.getDate() - d);
+    const rangeStr = fmt(from) + ' — ' + fmt(today);
+    val.textContent = rangeStr;
+    daysEl.textContent = 'Last ' + d + ' days';
+    bar.classList.add('visible');
+    // Auto-fill period field if empty
+    if(!period.value) {
+      period.value = rangeStr;
+      refreshPreview();
+    } else {
+      // Always update period to match date range
+      period.value = rangeStr;
+      refreshPreview();
+    }
+  }
 }
 
 function copyJql() {
