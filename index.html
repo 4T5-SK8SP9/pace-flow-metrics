@@ -76,13 +76,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
 .drop-zone.loaded::before{background:radial-gradient(ellipse at 50% 0%,rgba(46,125,94,.06) 0%,transparent 70%)}
 /* file input is now hidden, triggered by button */
 
-.drop-icon{font-size:2.8rem;margin-bottom:.5rem;transition:transform .2s;display:block}
+.drop-icon{font-size:2.8rem;margin-bottom:.5rem;transition:transform .2s;display:block;pointer-events:none}
 .drop-zone:hover .drop-icon,.drop-zone.drag-over .drop-icon{transform:translateY(-4px)}
 .drop-zone.loaded .drop-icon{font-size:2rem}
-.drop-title{font-family:'DM Serif Display',serif;font-size:1.1rem;color:var(--black);margin-bottom:.25rem}
+.drop-title{font-family:'DM Serif Display',serif;font-size:1.1rem;color:var(--black);margin-bottom:.25rem;pointer-events:none}
 .drop-zone.loaded .drop-title{color:var(--green);font-size:.95rem}
-.drop-sub{font-size:.75rem;color:var(--muted);margin-bottom:.5rem}
-.drop-pill{display:inline-block;background:var(--blush);color:var(--crimson);font-size:.68rem;font-weight:500;padding:3px 10px;border-radius:20px}
+.drop-sub{font-size:.75rem;color:var(--muted);margin-bottom:.5rem;pointer-events:none}
+.drop-pill{display:inline-block;background:var(--blush);color:var(--crimson);font-size:.68rem;font-weight:500;padding:3px 10px;border-radius:20px;pointer-events:none}
 .browse-btn{background:var(--red);color:var(--white);border:none;border-radius:8px;padding:8px 20px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin:.5rem 0;display:block;transition:background .15s}
 .browse-btn:hover{background:#d41e16}
 .drop-zone.loaded .drop-pill{background:#d4ede3;color:var(--green)}
@@ -269,8 +269,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
       <input type="file" id="fileInput" accept=".csv,.xlsx" onchange="onFileSelect(event)" style="display:none">
 
       <div class="drop-zone" id="dropZone">
-        <!-- Invisible full-coverage drag overlay — sits on top of all children -->
-        <div id="dragOverlay" style="position:absolute;inset:0;z-index:10;pointer-events:none"></div>
         <span class="drop-icon" id="dropIcon">📂</span>
         <div class="drop-title" id="dropTitle">Drag &amp; drop your Jira CSV here</div>
         <div class="drop-sub" id="dropSub">or click the button below to browse</div>
@@ -517,6 +515,7 @@ function initDropZone() {
   // Use document-level drag listeners to avoid child element issues
   dz.addEventListener('dragenter', function(e) {
     e.preventDefault();
+    e.stopPropagation();
     dragCounter++;
     dz.classList.add('drag-over');
   });
@@ -530,19 +529,35 @@ function initDropZone() {
   });
   dz.addEventListener('dragover', function(e) {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
+    return false;
   });
   dz.addEventListener('drop', function(e) {
     e.preventDefault();
+    e.stopPropagation();
     dragCounter = 0;
     dz.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];
-    if(file) loadFile(file);
-    else toast('No file detected — try clicking Browse files instead', 'error');
+    if(file) {
+      loadFile(file);
+    } else {
+      toast('No file detected — try the Browse files button instead', 'error');
+    }
+    return false;
   });
   dz.addEventListener('click', function(e) {
     if(e.target.id !== 'browseBtn') {
       document.getElementById('fileInput').click();
+    }
+  });
+
+  // Prevent browser from opening file if dropped outside the zone
+  document.addEventListener('dragover', function(e) { e.preventDefault(); });
+  document.addEventListener('drop', function(e) {
+    if(e.target !== dz && !dz.contains(e.target)) {
+      e.preventDefault();
+      toast('Drop the file onto the pink zone above', 'error');
     }
   });
 }
