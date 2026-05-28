@@ -482,10 +482,14 @@ const FLOW = [
   {id:'cfd',        name:'Created vs Resolved',  desc:'Demand vs delivery trend',     tag:'f', color:'#1C6B7A', icon:'↔'},
 ];
 const QUAL = [
-  {id:'defect_ratio', name:'Defect Ratio',        desc:'Bugs vs stories per period',  tag:'q', color:'#C0392B', icon:'🐛'},
-  {id:'escape_rate',  name:'Defect Escape Rate',  desc:'Bugs found after Done',       tag:'q', color:'#B5598C', icon:'🚨'},
-  {id:'avg_age',      name:'Avg Age of Bugs',     desc:'Days open bugs exist',        tag:'q', color:'#C97A2A', icon:'📅'},
-  {id:'wip_age',      name:'WIP Age',             desc:'Oldest active items',         tag:'q', color:'#1C6B7A', icon:'🕰'},
+  {id:'defect_ratio',    name:'Defect Ratio',        desc:'Bugs vs stories per period',   tag:'q', color:'#C0392B', icon:'🐛'},
+  {id:'escape_rate',     name:'Defect Escape Rate',  desc:'Bugs found after Done',        tag:'q', color:'#B5598C', icon:'🚨'},
+  {id:'avg_age',         name:'Avg Age of Bugs',     desc:'Days open bugs exist',         tag:'q', color:'#C97A2A', icon:'📅'},
+  {id:'wip_age',         name:'WIP Age',             desc:'Oldest active items',          tag:'q', color:'#1C6B7A', icon:'🕰'},
+  {id:'arrival_rate',    name:'Arrival Rate',        desc:'New items created per week',   tag:'q', color:'#2E7D5E', icon:'📥'},
+  {id:'completion_rate', name:'Completion Rate',     desc:'% of started items finished',  tag:'q', color:'#B5598C', icon:'✅'},
+  {id:'scope_stability', name:'Scope Stability',     desc:'Items added vs planned',       tag:'q', color:'#C97A2A', icon:'📐'},
+  {id:'time_in_status',  name:'Time in Status',      desc:'How to track time per column', tag:'q', color:'#1C6B7A', icon:'⏳'},
 ];
 
 let sel     = new Set(['cycle_time','throughput','wip']);
@@ -967,6 +971,148 @@ function renderSlide(slide) {
       </div>`).join('')+'</div>';
   }
 
+  // ── ARRIVAL RATE ──
+  else if(slide.id==='arrival_rate') {
+    document.getElementById('ccSub').textContent='New items created per week — demand pressure on the team';
+    if(!rows.length){body.innerHTML=noData();return;}
+    const wks={};
+    rows.forEach(r=>{
+      const d=pd(r['Created']);
+      if(!d)return;
+      const wk='W'+getWk(d)+'/'+String(d.getFullYear()).slice(2);
+      wks[wk]=(wks[wk]||0)+1;
+    });
+    const keys=Object.keys(wks).sort().slice(-10);
+    if(!keys.length){body.innerHTML=noData('No created date data found');return;}
+    const vals=keys.map(k=>wks[k]);
+    const avg=Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+    const trend=vals[vals.length-1]>vals[0]?'rising':'falling';
+    const trendColor=trend==='rising'?'#C0392B':'#2E7D5E';
+    body.innerHTML=`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="background:#e8f5ee;border-left:3px solid #2E7D5E;border-radius:8px;padding:8px 14px;flex:1;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:#2E7D5E">${avg}</div>
+          <div style="font-size:.68rem;color:#7A6A6D">Avg items/week</div>
+        </div>
+        <div style="background:${trendColor}12;border-left:3px solid ${trendColor};border-radius:8px;padding:8px 14px;flex:1;text-align:center">
+          <div style="font-size:1.4rem">${trend==='rising'?'📈':'📉'}</div>
+          <div style="font-size:.68rem;color:${trendColor};font-weight:600">${trend==='rising'?'Demand rising':'Demand falling'}</div>
+        </div>
+        <div style="background:#FAF6F7;border-left:3px solid #B5598C;border-radius:8px;padding:8px 14px;flex:1;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:#B5598C">${vals[vals.length-1]}</div>
+          <div style="font-size:.68rem;color:#7A6A6D">This week</div>
+        </div>
+      </div>
+      <canvas id="arrC" style="max-height:150px"></canvas>`;
+    chartInst.arr=new Chart(document.getElementById('arrC'),{type:'line',data:{labels:keys,datasets:[{label:'Created per week',data:vals,borderColor:'#2E7D5E',backgroundColor:'#2E7D5E18',fill:true,tension:.35,pointRadius:4,pointBackgroundColor:'#2E7D5E'},{label:'Average',data:keys.map(()=>avg),borderColor:'#C97A2A',borderDash:[5,5],borderWidth:1.5,pointRadius:0,fill:false}]},options:{plugins:{legend:{position:'top',labels:{font:{size:10},padding:10}}},scales:{y:{beginAtZero:true}}}});
+  }
+
+  // ── COMPLETION RATE ──
+  else if(slide.id==='completion_rate') {
+    document.getElementById('ccSub').textContent='% of started items that actually reach Done';
+    if(!rows.length){body.innerHTML=noData();return;}
+    const ACTIVE=['In Progress','Verify','In Review','Selected for Development','Done'];
+    const started=rows.filter(r=>ACTIVE.includes((r['Status']||'').trim())||(r['Status Category']||'').trim()==='Done').length;
+    const done=stats.done;
+    const inFlight=started-done;
+    const rate=started>0?Math.round(done/started*100):0;
+    const statusColor=rate>=70?'#2E7D5E':rate>=50?'#C97A2A':'#C0392B';
+    const statusLabel=rate>=70?'✅ Healthy completion rate':rate>=50?'⚠️ Room to improve':'🚨 Many items not finishing';
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="background:${statusColor}12;border-top:3px solid ${statusColor};border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:${statusColor}">${rate}%</div>
+          <div style="font-size:.68rem;color:#7A6A6D">Completion rate</div>
+        </div>
+        <div style="background:#e8f5ee;border-top:3px solid #2E7D5E;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:#2E7D5E">${done}</div>
+          <div style="font-size:.68rem;color:#7A6A6D">Completed</div>
+        </div>
+        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:#C97A2A">${inFlight}</div>
+          <div style="font-size:.68rem;color:#7A6A6D">Still in progress</div>
+        </div>
+      </div>
+      <div style="background:${statusColor}12;border-left:4px solid ${statusColor};border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <div style="font-size:.82rem;font-weight:600;color:${statusColor}">${statusLabel}</div>
+        <div style="font-size:.74rem;color:#24231F;margin-top:3px">${rate>=70?'Team is following through on work they start.':rate>=50?'Review items stuck in progress — are they blocked or deprioritised?':'Many items are being started but not finished. Lower WIP and focus on completing.'}</div>
+      </div>
+      <div style="background:#FAF6F7;border-radius:8px;padding:8px 12px;font-size:.72rem;color:#7A6A6D">
+        📌 Completion Rate = Done ÷ (Done + Active) × 100
+      </div>`;
+  }
+
+  // ── SCOPE STABILITY ──
+  else if(slide.id==='scope_stability') {
+    document.getElementById('ccSub').textContent='Items added mid-period vs items at start of period';
+    if(!rows.length){body.innerHTML=noData();return;}
+    const days=parseInt(document.getElementById('jqlDays').value)||30;
+    const now=new Date();
+    const periodStart=new Date(now); periodStart.setDate(periodStart.getDate()-days);
+    const halfway=new Date(periodStart); halfway.setDate(halfway.getDate()+Math.floor(days/2));
+    const atStart=rows.filter(r=>{const d=pd(r['Created']); return d&&d<=periodStart;}).length;
+    const addedEarly=rows.filter(r=>{const d=pd(r['Created']); return d&&d>periodStart&&d<=halfway;}).length;
+    const addedLate=rows.filter(r=>{const d=pd(r['Created']); return d&&d>halfway&&d<=now;}).length;
+    const totalAdded=addedEarly+addedLate;
+    const stability=atStart>0?Math.round((1-(totalAdded/(atStart+totalAdded)))*100):null;
+    const statusColor=stability===null?'#7A6A6D':stability>=80?'#2E7D5E':stability>=60?'#C97A2A':'#C0392B';
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:#FAF6F7;border-top:3px solid #24231F;border-radius:8px;padding:9px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#24231F">${atStart}</div>
+          <div style="font-size:.62rem;color:#7A6A6D">At period start</div>
+        </div>
+        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:9px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C97A2A">${addedEarly}</div>
+          <div style="font-size:.62rem;color:#7A6A6D">Added early</div>
+        </div>
+        <div style="background:#ffe8e8;border-top:3px solid #C0392B;border-radius:8px;padding:9px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${addedLate}</div>
+          <div style="font-size:.62rem;color:#7A6A6D">Added late</div>
+        </div>
+        <div style="background:${statusColor}12;border-top:3px solid ${statusColor};border-radius:8px;padding:9px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:${statusColor}">${stability!==null?stability+'%':'N/A'}</div>
+          <div style="font-size:.62rem;color:#7A6A6D">Stability score</div>
+        </div>
+      </div>
+      <div style="background:${statusColor}12;border-left:4px solid ${statusColor};border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <div style="font-size:.82rem;font-weight:600;color:${statusColor}">${stability===null?'Set date range in JQL helper':stability>=80?'✅ Stable scope — good planning discipline':stability>=60?'⚠️ Moderate scope creep — review intake process':'🚨 High scope creep — items added frequently mid-period'}</div>
+      </div>
+      <div style="background:#FAF6F7;border-radius:8px;padding:8px 12px;font-size:.72rem;color:#7A6A6D">
+        📌 Stability = Items at start ÷ Total items × 100 — higher is better. Use JQL date range to set the period.
+      </div>`;
+  }
+
+  // ── TIME IN STATUS ──
+  else if(slide.id==='time_in_status') {
+    document.getElementById('ccSub').textContent='Not in standard CSV — here is how to track it';
+    body.innerHTML=`
+      <div style="background:#EEF4FF;border-left:4px solid #1C6B7A;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.75rem">
+        <div style="font-size:.72rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:#1C6B7A;margin-bottom:.4rem">WHY IT'S NOT IN YOUR CSV</div>
+        <div style="font-size:.82rem;color:#24231F;line-height:1.55">Jira's standard CSV export only records <em>current</em> status — not how long each issue spent in each column. Time in Status requires status transition history.</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:#FAF6F7;border-radius:8px;border:1px solid #E8E0E2;padding:10px 12px">
+          <div style="font-size:.7rem;font-weight:600;color:#B5598C;margin-bottom:5px">PLUGIN OPTIONS</div>
+          <div style="font-size:.78rem;color:#24231F;line-height:1.6">
+            <strong>Screenful</strong> — best visual dashboard<br>
+            <strong>EazyBI</strong> — powerful, needs setup<br>
+            <strong>Jira Align</strong> — enterprise option<br>
+            <strong>Time in Status</strong> — dedicated app
+          </div>
+        </div>
+        <div style="background:#FAF6F7;border-radius:8px;border:1px solid #E8E0E2;padding:10px 12px">
+          <div style="font-size:.7rem;font-weight:600;color:#2E7D5E;margin-bottom:5px">MANUAL METHOD</div>
+          <div style="font-size:.78rem;color:#24231F;line-height:1.6">
+            1. Jira → Issues → select issue<br>
+            2. View <strong>History</strong> tab<br>
+            3. Note status change dates<br>
+            4. Calculate days per status
+          </div>
+        </div>
+      </div>`;
+  }
+
   else {
     document.getElementById('ccSub').textContent='';
     body.innerHTML=`<div style="color:var(--muted);font-size:.82rem;padding:2rem;text-align:center">Preview for "${slide.name}"</div>`;
@@ -1238,7 +1384,11 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     {id:'defect_ratio',name:'Defect Ratio',        sub:'Bugs vs stories completed per period',        acc:C.crimson},
     {id:'escape_rate', name:'Defect Escape Rate',  sub:'Bugs found after stories marked Done',        acc:C.plum},
     {id:'avg_age',     name:'Average Age of Bugs', sub:'Days open bugs exist without resolution',     acc:C.orange},
-    {id:'wip_age',     name:'WIP Age',             sub:'How long active items have been in progress', acc:C.teal},
+    {id:'wip_age',         name:'WIP Age',          sub:'How long active items have been in progress',        acc:C.teal},
+    {id:'arrival_rate',    name:'Arrival Rate',     sub:'New items created per week — demand pressure on the team', acc:C.green},
+    {id:'completion_rate', name:'Completion Rate',  sub:'Percentage of started items that actually reach Done',    acc:C.plum},
+    {id:'scope_stability', name:'Scope Stability',  sub:'Items added mid-period vs items planned at start',        acc:C.orange},
+    {id:'time_in_status',  name:'Time in Status',   sub:'How to measure time spent in each workflow column',       acc:C.teal},
   ];
 
   const csvRows = window._csvRows || [];
@@ -1440,6 +1590,143 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
       } else {
         addTxt(sl,'No active WIP items found.',0.5,2.5,9.0,0.5,12,C.muted,{italic:true});
       }
+    }
+
+    // ARRIVAL RATE
+    else if(m.id==='arrival_rate') {
+      const wks={};
+      csvRows.forEach(function(r){
+        const d=pd(r['Created']); if(!d)return;
+        const wk='W'+getWk(d)+'/'+String(d.getFullYear()).slice(2);
+        wks[wk]=(wks[wk]||0)+1;
+      });
+      const keys=Object.keys(wks).sort().slice(-8);
+      const vals=keys.map(function(k){return wks[k];});
+      const avg=vals.length?Math.round(vals.reduce(function(a,b){return a+b;},0)/vals.length):0;
+      const latest=vals.length?vals[vals.length-1]:0;
+      const trend=vals.length>1?(vals[vals.length-1]>vals[0]?'Rising':'Falling'):'N/A';
+      const trendC=trend==='Rising'?C.crimson:C.green;
+
+      addMetricCard(sl,0.35,1.0,2.95,1.40,C.green,'Avg Items / Week',String(avg),'rolling average');
+      addMetricCard(sl,3.52,1.0,2.95,1.40,trendC,'Demand Trend',trend,'vs period start');
+      addMetricCard(sl,6.70,1.0,2.95,1.40,C.plum,'Latest Week',String(latest),'items created');
+
+      if(keys.length) {
+        const mx=Math.max.apply(null,vals)||1;
+        addTxt(sl,'WEEKLY DEMAND — ITEMS CREATED',0.35,2.58,9.3,0.22,8,C.muted,{bold:true});
+        keys.forEach(function(k,i){
+          const bw=0.88,bh=Math.max((wks[k]/mx)*2.20,0.02),bx=0.50+i*1.18,by=2.82+(2.20-bh);
+          addRect(sl,bx,by,bw,bh,C.green);
+          addTxt(sl,String(wks[k]),bx,by-0.30,bw,0.26,9,C.black,{align:'center',bold:true});
+          addTxt(sl,k,bx,5.10,bw,0.22,7,C.muted,{align:'center'});
+        });
+        // Average line label
+        addRect(sl,0.35,2.82+(2.20-(avg/mx)*2.20),9.30,0.02,C.orange);
+        addTxt(sl,'avg: '+avg,9.10,2.82+(2.20-(avg/mx)*2.20)-0.20,0.80,0.22,7,C.orange,{align:'right'});
+      }
+    }
+
+    // COMPLETION RATE
+    else if(m.id==='completion_rate') {
+      const ACTV=['In Progress','Verify','In Review','Selected for Development','Done'];
+      const started=csvRows.filter(function(r){return ACTV.indexOf((r['Status']||'').trim())>=0||(r['Status Category']||'').trim()==='Done';}).length;
+      const done=s.done;
+      const inFlight=Math.max(started-done,0);
+      const rate=started>0?Math.round(done/started*100):0;
+      const statusC=rate>=70?C.green:rate>=50?C.orange:C.crimson;
+      const statusL=rate>=70?'Healthy — team follows through on work they start':
+                    rate>=50?'Room to improve — review items stuck in progress':
+                    'Many items starting but not finishing — reduce WIP';
+
+      [
+        {l:'Completion Rate', v:rate+'%',      c:statusC},
+        {l:'Completed',       v:String(done),  c:C.green},
+        {l:'Still In Progress',v:String(inFlight),c:C.orange},
+        {l:'Total Started',   v:String(started),c:C.black},
+      ].forEach(function(x,i){
+        addMetricCard(sl,0.35+i*2.40,1.0,2.20,1.40,x.c,x.l,x.v,'');
+      });
+
+      addRect(sl,0.35,2.58,9.30,0.75,statusC+'18',statusC,0.5);
+      addRect(sl,0.35,2.58,0.06,0.75,statusC);
+      addTxt(sl,statusL,0.55,2.70,8.90,0.50,10,C.black);
+
+      // Donut visual via bar
+      addTxt(sl,'COMPLETION BREAKDOWN',0.35,3.50,9.3,0.22,8,C.muted,{bold:true});
+      const totalW=9.30;
+      const doneW=started>0?(done/started)*totalW:0;
+      addRect(sl,0.35,3.78,doneW,0.55,C.green);
+      if(doneW<totalW) addRect(sl,0.35+doneW,3.78,totalW-doneW,0.55,C.orange);
+      addTxt(sl,done+' Done',0.45,3.86,doneW>1.5?doneW-0.2:1.5,0.30,9,C.white,{bold:true});
+      if(inFlight>0) addTxt(sl,inFlight+' In Progress',0.35+doneW+0.10,3.86,totalW-doneW-0.2,0.30,9,C.white,{bold:true});
+      addTxt(sl,'Formula: Done items / (Done + Active items) x 100',0.35,4.48,9.30,0.30,8,C.muted,{italic:true});
+    }
+
+    // SCOPE STABILITY
+    else if(m.id==='scope_stability') {
+      const daysSel=parseInt(document.getElementById('jqlDays').value)||30;
+      const now=new Date();
+      const pStart=new Date(now); pStart.setDate(pStart.getDate()-daysSel);
+      const halfway=new Date(pStart); halfway.setDate(halfway.getDate()+Math.floor(daysSel/2));
+      const atStart=csvRows.filter(function(r){const d=pd(r['Created']);return d&&d<=pStart;}).length;
+      const addedE=csvRows.filter(function(r){const d=pd(r['Created']);return d&&d>pStart&&d<=halfway;}).length;
+      const addedL=csvRows.filter(function(r){const d=pd(r['Created']);return d&&d>halfway&&d<=now;}).length;
+      const total=atStart+addedE+addedL;
+      const stab=total>0?Math.round((atStart/total)*100):null;
+      const stabC=stab===null?C.muted:stab>=80?C.green:stab>=60?C.orange:C.crimson;
+      const stabL=stab===null?'Set period in JQL helper':
+                  stab>=80?'Stable scope — good planning discipline':
+                  stab>=60?'Moderate scope creep — review intake':
+                  'High scope creep — items added frequently mid-period';
+
+      [
+        {l:'At Period Start',  v:String(atStart), c:C.black},
+        {l:'Added Early',      v:String(addedE),  c:C.orange},
+        {l:'Added Late',       v:String(addedL),  c:C.crimson},
+        {l:'Stability Score',  v:stab!==null?stab+'%':'N/A', c:stabC},
+      ].forEach(function(x,i){
+        addMetricCard(sl,0.35+i*2.40,1.0,2.20,1.40,x.c,x.l,x.v,'');
+      });
+
+      addRect(sl,0.35,2.58,9.30,0.75,stabC+'18',stabC,0.5);
+      addRect(sl,0.35,2.58,0.06,0.75,stabC);
+      addTxt(sl,stabL,0.55,2.70,8.90,0.50,10,C.black);
+
+      // Stacked bar
+      addTxt(sl,'SCOPE COMPOSITION',0.35,3.50,9.3,0.22,8,C.muted,{bold:true});
+      if(total>0){
+        const sw=9.30;
+        const w1=(atStart/total)*sw, w2=(addedE/total)*sw, w3=(addedL/total)*sw;
+        addRect(sl,0.35,3.78,w1,0.55,C.black);
+        if(w2>0) addRect(sl,0.35+w1,3.78,w2,0.55,C.orange);
+        if(w3>0) addRect(sl,0.35+w1+w2,3.78,w3,0.55,C.crimson);
+        if(w1>0.8) addTxt(sl,'Planned',0.45,3.86,w1-0.1,0.30,8,C.white,{bold:true});
+        if(w2>0.8) addTxt(sl,'Early add',0.35+w1+0.05,3.86,w2-0.1,0.30,8,C.white,{bold:true});
+        if(w3>0.8) addTxt(sl,'Late add',0.35+w1+w2+0.05,3.86,w3-0.1,0.30,8,C.white,{bold:true});
+      }
+      addTxt(sl,'Formula: Items at period start / Total items x 100. Higher = more stable planning.',0.35,4.48,9.30,0.30,8,C.muted,{italic:true});
+    }
+
+    // TIME IN STATUS
+    else if(m.id==='time_in_status') {
+      addRect(sl,0.35,1.0,9.30,1.10,C.teal+'18',C.teal,0.5);
+      addRect(sl,0.35,1.0,0.06,1.10,C.teal);
+      addTxt(sl,'NOT IN STANDARD JIRA CSV EXPORT',0.55,1.08,9.0,0.24,8,C.teal,{bold:true});
+      addTxt(sl,'Time in Status requires status transition history. The standard CSV only captures current status.',0.55,1.32,9.0,0.50,10,C.black);
+
+      addTxt(sl,'PLUGIN OPTIONS',0.35,2.25,4.45,0.22,8,C.plum,{bold:true});
+      ['Screenful — best visual flow dashboard','EazyBI — powerful, requires configuration','Time in Status app — dedicated Jira plugin','Jira Align — enterprise reporting'].forEach(function(line,i){
+        addRect(sl,0.35,2.50+i*0.52,4.45,0.44,C.white,C.lgrey,0.5);
+        addRect(sl,0.35,2.50+i*0.52,0.06,0.44,C.plum);
+        addTxt(sl,line,0.52,2.58+i*0.52,4.18,0.28,9,C.black);
+      });
+
+      addTxt(sl,'MANUAL METHOD',5.10,2.25,4.55,0.22,8,C.green,{bold:true});
+      ['1.  Open any Jira issue','2.  Click the History tab','3.  Note each status change date','4.  Calculate days spent per status','5.  Average across 10-20 issues'].forEach(function(line,i){
+        addRect(sl,5.10,2.50+i*0.52,4.55,0.44,C.white,C.lgrey,0.5);
+        addRect(sl,5.10,2.50+i*0.52,0.06,0.44,C.green);
+        addTxt(sl,line,5.28,2.58+i*0.52,4.28,0.28,9,C.black);
+      });
     }
 
     else {
