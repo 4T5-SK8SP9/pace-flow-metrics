@@ -1227,7 +1227,7 @@ function fallback(s,team,period) {
 ═══════════════════════════════════════════════════════════ */
 function dlCSV() {
   const s=stats;
-  const rows=[
+  const csvRows=[
     ['Metric','Value'],
     ['Total issues',s.total],['Completed',s.done],['WIP (active)',s.wip],
     ['Avg cycle time (days)',s.avgCT||'N/A'],['Avg lead time (days)',s.avgLT||'N/A'],
@@ -1235,16 +1235,363 @@ function dlCSV() {
     ['PERT forecast (days)',s.pert||'N/A'],['Bug count',s.bugs],
     ['Story count',s.stories],['Defect ratio',s.dr||'N/A'],
   ];
-  const csv=rows.map(r=>r.join(',')).join('\n');
+  const csv=csvRows.map(r=>r.join(',')).join('\n');
   dl(new Blob([csv],{type:'text/csv'}),(document.getElementById('teamName').value||'team').replace(/\s+/g,'_')+'_flow_metrics.csv');
   toast('CSV downloaded');
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   PDF GENERATOR — print-based, works in all browsers
+═══════════════════════════════════════════════════════════ */
+function generatePDF() {
+  const team   = document.getElementById('teamName').value || 'Team';
+  const period = document.getElementById('period').value   || 'Current period';
+  const smName = document.getElementById('smName').value   || '';
+  const s      = stats;
+  const teamSz = parseInt(document.getElementById('teamSize').value)||0;
+  const aiSummary = document.getElementById('aiText').textContent || '';
+
+  const allMetrics = [...FLOW,...QUAL];
+  const chosen = allMetrics.filter(m=>sel.has(m.id));
+
+  // Build print HTML
+  const C = {
+    black:'#24231F', red:'#F3271E', plum:'#B5598C',
+    blush:'#FCCAD3', rose:'#F796A1', white:'#FFFFFF',
+    off:'#FAF6F7', lgrey:'#E8E0E2', muted:'#7A6A6D',
+    green:'#2E7D5E', orange:'#C97A2A', crimson:'#C0392B', teal:'#1C6B7A'
+  };
+
+  function page(content) {
+    return `<div class="page">${content}</div>`;
+  }
+
+  function coverPage() {
+    return page(`
+      <div style="background:${C.black};height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:3rem">
+        <div>
+          <div style="font-size:.75rem;color:${C.rose};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:1rem">Kanban Metrics Report</div>
+          <div style="font-family:'DM Serif Display',serif;font-size:3rem;color:${C.white};line-height:1.15;margin-bottom:.75rem">${team}</div>
+          <div style="font-size:1.3rem;color:${C.rose};margin-bottom:.5rem">${period}</div>
+          ${smName?`<div style="font-size:.9rem;color:${C.blush};font-style:italic">${smName}</div>`:''}
+        </div>
+        <div style="border-top:3px solid ${C.red};padding-top:1rem;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:.75rem;color:#666">Pandora · PACE · Digital & Technology</div>
+          <div style="width:32px;height:3px;background:${C.red}"></div>
+        </div>
+      </div>`);
+  }
+
+  function summaryPage() {
+    const wipLabel = teamSz>0?`${s.wip} (${(s.wip/teamSz).toFixed(1)}/person)`:String(s.wip);
+    const cards = [
+      {l:'Total Issues',    v:String(s.total),                        c:C.red},
+      {l:'Completed',       v:String(s.done),                         c:C.green},
+      {l:'WIP Right Now',   v:wipLabel,                               c:C.plum},
+      {l:'Avg Cycle Time',  v:s.avgCT!==null?s.avgCT+'d':'N/A',      c:C.orange},
+      {l:'PERT Forecast',   v:s.pert!==null?s.pert+'d':'N/A',        c:C.teal},
+      {l:'Defect Ratio',    v:s.dr||'N/A',                            c:C.crimson},
+    ];
+    return page(`
+      <div class="slide-header" style="border-bottom:3px solid ${C.red}">
+        <div class="slide-title">Team Summary</div>
+        <div class="slide-sub">Timeframe: ${period}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+        ${cards.map(c=>`
+          <div style="background:${c.c}12;border-left:4px solid ${c.c};border-radius:8px;padding:12px 14px">
+            <div style="font-size:.62rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:${C.muted};margin-bottom:4px">${c.l}</div>
+            <div style="font-family:'DM Serif Display',serif;font-size:1.8rem;color:${C.black};line-height:1">${c.v}</div>
+          </div>`).join('')}
+      </div>
+      ${aiSummary?`
+        <div style="background:#f3eaf8;border-left:4px solid ${C.plum};border-radius:8px;padding:12px 14px">
+          <div style="font-size:.62rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:${C.plum};margin-bottom:6px">AI Coaching Summary</div>
+          <div style="font-size:.82rem;color:${C.black};line-height:1.6;font-style:italic">${aiSummary}</div>
+        </div>`:''}
+      <div class="slide-footer">Timeframe: ${period} · ${team}</div>`);
+  }
+
+  function metricPage(m) {
+    const ACTIVE=['In Progress','Verify','In Review','Selected for Development'];
+    const excl=['Done','To Do','Backlog','Proposed','Rejected','Archived'];
+    const now=new Date();
+
+    function statRow(label, value, color) {
+      return `<div style="background:${color}12;border-left:4px solid ${color};border-radius:7px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:.78rem;color:${C.muted}">${label}</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:${color}">${value}</div>
+      </div>`;
+    }
+
+    function metCard(label, value, color) {
+      return `<div style="background:${color}12;border-top:3px solid ${color};border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:.6rem;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:${C.muted};margin-bottom:4px">${label}</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:${color};line-height:1">${value}</div>
+      </div>`;
+    }
+
+    let body = '';
+
+    if(m.id==='cycle_time' && s.ct.length) {
+      const sorted=[...s.ct].sort((a,b)=>a-b);
+      const p50=sorted[Math.floor(sorted.length*.5)];
+      const p85=sorted[Math.floor(sorted.length*.85)];
+      body=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+        ${metCard('Average',s.avgCT+'d',C.red)}
+        ${metCard('P50 Median',p50+'d',C.green)}
+        ${metCard('P85 SLA',p85+'d',C.orange)}
+      </div>
+      <div style="background:${C.off};border-radius:8px;padding:10px 14px;font-size:.78rem;color:${C.black};line-height:1.6">
+        P50 = typical delivery speed. P85 = safe stakeholder commitment.<br>
+        Tell stakeholders: <em>"We typically deliver in ${p50} days. For a safe commitment, allow ${p85} days."</em>
+      </div>`;
+    } else if(m.id==='throughput') {
+      const wks={};
+      rows.forEach(r=>{const d=pd(r['Resolved']||r['Custom field (Resolution date)']);if(!d)return;const w='W'+getWk(d);wks[w]=(wks[w]||0)+1;});
+      const keys=Object.keys(wks).sort().slice(-6);
+      const avg=keys.length?Math.round(keys.map(k=>wks[k]).reduce((a,b)=>a+b,0)/keys.length):0;
+      body=`<div style="display:grid;grid-template-columns:repeat(${Math.min(keys.length,6)},1fr);gap:8px;margin-bottom:12px">
+        ${keys.map(k=>`<div style="background:${C.plum}12;border-top:3px solid ${C.plum};border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:${C.plum}">${wks[k]}</div>
+          <div style="font-size:.6rem;color:${C.muted}">${k}</div>
+        </div>`).join('')}
+      </div>
+      ${statRow('Weekly average (rolling)', avg+' items/week', C.plum)}`;
+    } else if(m.id==='wip') {
+      const active=Object.entries(s.sm).filter(([st])=>!excl.includes(st));
+      const totalWip=active.reduce((a,[,v])=>a+v,0);
+      const accs=[C.red,C.plum,C.orange,C.green,C.teal,C.black];
+      body=`${teamSz>0?`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+        ${metCard('WIP per person',(totalWip/teamSz).toFixed(1),parseFloat((totalWip/teamSz).toFixed(1))>1.5?C.crimson:C.green)}
+        ${metCard('Total WIP',String(totalWip),C.plum)}
+        ${metCard('Recommended max',String(Math.round(teamSz*1.5)),C.black)}
+      </div>`:''}
+      <div style="display:grid;grid-template-columns:repeat(${Math.min(active.length,3)},1fr);gap:8px">
+        ${active.slice(0,6).map(([st,cnt],i)=>`<div style="background:${accs[i%accs.length]}12;border-left:3px solid ${accs[i%accs.length]};border-radius:7px;padding:8px 10px">
+          <div style="font-size:.72rem;font-weight:500;color:${C.black}">${st}</div>
+          <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:${accs[i%accs.length]}">${cnt}</div>
+        </div>`).join('')}
+      </div>`;
+    } else if(m.id==='lead_time' && s.lt.length) {
+      const sorted=[...s.lt].sort((a,b)=>a-b);
+      body=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+        ${metCard('Minimum',Math.min(...s.lt)+'d',C.teal)}
+        ${metCard('P50 Median',sorted[Math.floor(sorted.length*.5)]+'d',C.green)}
+        ${metCard('P85 SLA',sorted[Math.floor(sorted.length*.85)]+'d',C.orange)}
+        ${metCard('Maximum',Math.max(...s.lt)+'d',C.crimson)}
+      </div>`;
+    } else if(m.id==='forecast' && s.minCT!==null) {
+      body=`<div style="background:#f2f8f5;border-left:4px solid ${C.green};border-radius:10px;padding:16px">
+        <div style="font-size:.72rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:${C.green};margin-bottom:8px">PERT Forecast Formula</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;color:${C.black};margin-bottom:12px">( Min + (4 × Avg) + Max ) ÷ 6</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+          ${metCard('Min',s.minCT+'d',C.teal)}
+          ${metCard('Avg ×4',s.avgCT+'d',C.orange)}
+          ${metCard('Max',s.maxCT+'d',C.crimson)}
+          <div style="background:${C.green};border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:.6rem;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:#9fdfc4;margin-bottom:4px">Forecast</div>
+            <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:white;line-height:1">${s.pert}d</div>
+          </div>
+        </div>
+        <div style="font-size:.78rem;color:${C.black};font-style:italic">Tell stakeholders: "Based on our last ${s.ct.length} items, expect delivery in around ${s.pert} days."</div>
+      </div>`;
+    } else if(m.id==='cfd') {
+      const cW={},rW={};
+      rows.forEach(r=>{
+        const c=pd(r['Created']);const res=pd(r['Resolved']||r['Custom field (Resolution date)']);
+        if(c){const w='W'+getWk(c);cW[w]=(cW[w]||0)+1;}
+        if(res){const w='W'+getWk(res);rW[w]=(rW[w]||0)+1;}
+      });
+      const allW=[...new Set([...Object.keys(cW),...Object.keys(rW)])].sort().slice(-8);
+      const tC=Object.values(cW).reduce((a,b)=>a+b,0);
+      const tR=Object.values(rW).reduce((a,b)=>a+b,0);
+      const ok=tR>=tC;
+      body=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        ${metCard('Total Created',String(tC),C.red)}
+        ${metCard('Total Resolved',String(tR),C.green)}
+      </div>
+      <div style="background:${ok?C.green:C.crimson}12;border-left:4px solid ${ok?C.green:C.crimson};border-radius:8px;padding:10px 14px;font-size:.82rem;color:${C.black}">
+        ${ok?'✅ Resolved ≥ Created — delivery keeping up with demand':'⚠️ Created > Resolved — backlog is growing. Review intake or capacity.'}
+      </div>`;
+    } else if(m.id==='defect_ratio') {
+      body=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+        ${metCard('Total Bugs',String(s.bugs),C.crimson)}
+        ${metCard('Total Stories',String(s.stories),C.green)}
+        ${metCard('Defect Ratio',s.dr||'N/A',parseFloat(s.dr||1)<0.3?C.green:parseFloat(s.dr||1)<0.6?C.orange:C.crimson)}
+      </div>
+      <div style="background:${C.off};border-radius:8px;padding:10px 14px;font-size:.78rem;color:${C.muted}">
+        Defect Ratio = bugs ÷ stories. Target below 0.3 and trending downward.
+      </div>`;
+    } else if(m.id==='completion_rate') {
+      const ACTV2=['In Progress','Verify','In Review','Selected for Development','Done'];
+      const started2=rows.filter(r=>ACTV2.includes((r['Status']||'').trim())||(r['Status Category']||'').trim()==='Done').length;
+      const rate2=started2>0?Math.round(s.done/started2*100):0;
+      const rC=rate2>=70?C.green:rate2>=50?C.orange:C.crimson;
+      body=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+        ${metCard('Completion Rate',rate2+'%',rC)}
+        ${metCard('Completed',String(s.done),C.green)}
+        ${metCard('In Progress',String(Math.max(started2-s.done,0)),C.orange)}
+      </div>
+      <div style="background:${rC}12;border-left:4px solid ${rC};border-radius:8px;padding:10px 14px;font-size:.82rem;color:${C.black}">
+        ${rate2>=70?'✅ Healthy — team follows through on work they start':rate2>=50?'⚠️ Room to improve — review items stuck in progress':'🚨 Many items starting but not finishing — reduce WIP'}
+      </div>`;
+    } else if(m.id==='arrival_rate') {
+      const wks2={};
+      rows.forEach(r=>{const d=pd(r['Created']);if(!d)return;const w='W'+getWk(d);wks2[w]=(wks2[w]||0)+1;});
+      const keys2=Object.keys(wks2).sort().slice(-6);
+      const avg2=keys2.length?Math.round(keys2.map(k=>wks2[k]).reduce((a,b)=>a+b,0)/keys2.length):0;
+      body=`<div style="display:grid;grid-template-columns:repeat(${Math.min(keys2.length,6)},1fr);gap:8px;margin-bottom:12px">
+        ${keys2.map(k=>`<div style="background:${C.green}12;border-top:3px solid ${C.green};border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:${C.green}">${wks2[k]}</div>
+          <div style="font-size:.6rem;color:${C.muted}">${k}</div>
+        </div>`).join('')}
+      </div>
+      ${statRow('Weekly average demand',avg2+' items created/week',C.green)}`;
+    } else if(m.id==='scope_stability') {
+      const daysSel2=parseInt(document.getElementById('jqlDays').value)||30;
+      const now2=new Date();
+      const pS=new Date(now2); pS.setDate(pS.getDate()-daysSel2);
+      const hw=new Date(pS); hw.setDate(hw.getDate()+Math.floor(daysSel2/2));
+      const REMOVED_S2=['Rejected','Cancelled','Wont Do','Declined','Out of Scope'];
+      const atS=rows.filter(r=>{const d=pd(r['Created']);return d&&d<=pS;}).length;
+      const addE=rows.filter(r=>{const d=pd(r['Created']);return d&&d>pS&&d<=hw;}).length;
+      const addL=rows.filter(r=>{const d=pd(r['Created']);return d&&d>hw&&d<=now2;}).length;
+      const rem=rows.filter(r=>{const d=pd(r['Created']||r['Updated']);const st=(r['Status']||'').trim();return d&&d>=pS&&REMOVED_S2.some(s=>st.toLowerCase().includes(s.toLowerCase()));}).length;
+      const tot2=atS+addE+addL;
+      const stab2=tot2>0?Math.round((atS/tot2)*100):null;
+      const sC2=stab2===null?C.muted:stab2>=80?C.green:stab2>=60?C.orange:C.crimson;
+      body=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+        ${metCard('At Start',String(atS),C.black)}
+        ${metCard('Added Early','+'+addE,C.orange)}
+        ${metCard('Added Late','+'+addL,C.crimson)}
+        ${metCard('Rejected','-'+rem,C.green)}
+        ${metCard('Stability',stab2!==null?stab2+'%':'N/A',sC2)}
+      </div>
+      <div style="background:${sC2}12;border-left:4px solid ${sC2};border-radius:8px;padding:10px 14px;font-size:.82rem;color:${C.black}">
+        ${stab2===null?'Set date range in JQL helper':stab2>=80?'✅ Stable scope — good planning discipline':stab2>=60?'⚠️ Moderate scope creep — review intake process':'🚨 High scope creep — frequent mid-period changes'}
+      </div>`;
+    } else if(m.id==='time_in_status') {
+      body=`<div style="background:#EEF4FF;border-left:4px solid ${C.teal};border-radius:8px;padding:12px 14px;margin-bottom:12px">
+        <div style="font-size:.72rem;font-weight:600;color:${C.teal};margin-bottom:4px">NOT IN STANDARD JIRA CSV</div>
+        <div style="font-size:.82rem;color:${C.black};line-height:1.5">Time in Status requires status transition history. Use Screenful, EazyBI, or the manual history tab method.</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:${C.off};border-radius:8px;padding:10px 12px">
+          <div style="font-size:.68rem;font-weight:600;color:${C.plum};margin-bottom:6px">PLUGIN OPTIONS</div>
+          <div style="font-size:.78rem;color:${C.black};line-height:1.7">Screenful · EazyBI · Time in Status app · Jira Align</div>
+        </div>
+        <div style="background:${C.off};border-radius:8px;padding:10px 12px">
+          <div style="font-size:.68rem;font-weight:600;color:${C.green};margin-bottom:6px">MANUAL METHOD</div>
+          <div style="font-size:.78rem;color:${C.black};line-height:1.7">Issue → History tab → note status change dates → calculate days per status</div>
+        </div>
+      </div>`;
+    } else {
+      body=`<div style="color:${C.muted};font-size:.82rem;padding:1rem;text-align:center;background:${C.off};border-radius:8px">Data not available in current export.</div>`;
+    }
+
+    return page(`
+      <div class="slide-header" style="border-bottom:3px solid ${m.color||C.red}">
+        <div class="slide-title">${m.name}</div>
+        <div class="slide-sub">${m.desc}</div>
+      </div>
+      ${body}
+      <div class="slide-footer">Timeframe: ${period} · ${team}</div>`);
+  }
+
+  function closingPage() {
+    return page(`
+      <div style="background:${C.black};height:100%;display:flex;flex-direction:column;justify-content:center;padding:3rem">
+        <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:${C.white};line-height:1.4;margin-bottom:2rem">
+          Measure Flow.<br>Improve Conversations.<br>Deliver Value.
+        </div>
+        <div style="border-top:1px solid #333;padding-top:1rem">
+          <div style="font-size:.82rem;color:${C.plum};font-style:italic">Questions? Reach out to PACE — we're here to help your teams make metrics meaningful.</div>
+          <div style="font-size:.72rem;color:#555;margin-top:.5rem">Pandora · PACE · Digital & Technology</div>
+        </div>
+      </div>`);
+  }
+
+  // Assemble all pages
+  const pages = [coverPage(), summaryPage()];
+  chosen.forEach(m => pages.push(metricPage(m)));
+  pages.push(closingPage());
+
+  const printHTML = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${team} — Flow Metrics — ${period}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: white; }
+  .page {
+    width: 297mm; height: 210mm;
+    padding: 0;
+    overflow: hidden;
+    page-break-after: always;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .page:last-child { page-break-after: avoid; }
+  .slide-header {
+    background: #24231F;
+    padding: 12px 20px 10px;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+  }
+  .slide-header::after {
+    content: '';
+    display: block;
+    height: 3px;
+    margin-top: 3px;
+  }
+  .slide-title { font-family: 'DM Serif Display', serif; font-size: 1.3rem; color: white; }
+  .slide-sub { font-size: .72rem; color: #7A6A6D; margin-top: 2px; font-style: italic; }
+  .slide-footer {
+    margin-top: auto;
+    padding: 8px 20px;
+    background: #F5EDEF;
+    font-size: .65rem;
+    color: #B5598C;
+    border-top: 2px solid #B5598C;
+    flex-shrink: 0;
+  }
+  .page > div:not(.slide-header):not(.slide-footer) {
+    padding: 0 20px;
+    flex: 1;
+    overflow: hidden;
+  }
+  @page { size: A4 landscape; margin: 0; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { width: 297mm; height: 210mm; }
+  }
+</style>
+</head>
+<body>${pages.join('')}</body>
+</html>`;
+
+  const win = window.open('','_blank','width=1200,height=800');
+  win.document.write(printHTML);
+  win.document.close();
+  win.onload = function() {
+    setTimeout(()=>{
+      win.print();
+    }, 800);
+  };
+  toast('PDF preview opened — use Print → Save as PDF');
 }
 
 async function dlReport() {
   const btn = document.getElementById('dlMain');
 
   if(fmt === 'pdf') {
-    toast('PDF export coming soon — use PowerPoint for now','error');
+    generatePDF();
     return;
   }
 
