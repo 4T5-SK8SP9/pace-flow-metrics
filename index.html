@@ -74,7 +74,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
   box-shadow:none;
 }
 .drop-zone.loaded::before{background:radial-gradient(ellipse at 50% 0%,rgba(46,125,94,.06) 0%,transparent 70%)}
-.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+/* file input is now hidden, triggered by button */
 
 .drop-icon{font-size:2.8rem;margin-bottom:.5rem;transition:transform .2s;display:block}
 .drop-zone:hover .drop-icon,.drop-zone.drag-over .drop-icon{transform:translateY(-4px)}
@@ -83,6 +83,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
 .drop-zone.loaded .drop-title{color:var(--green);font-size:.95rem}
 .drop-sub{font-size:.75rem;color:var(--muted);margin-bottom:.5rem}
 .drop-pill{display:inline-block;background:var(--blush);color:var(--crimson);font-size:.68rem;font-weight:500;padding:3px 10px;border-radius:20px}
+.browse-btn{background:var(--red);color:var(--white);border:none;border-radius:8px;padding:8px 20px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin:.5rem 0;display:block;transition:background .15s}
+.browse-btn:hover{background:#d41e16}
 .drop-zone.loaded .drop-pill{background:#d4ede3;color:var(--green)}
 .drop-zone.drag-over .drop-title::after{content:' — release to upload';color:var(--red)}
 
@@ -263,14 +265,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
         <span class="slabel">Upload your Jira CSV</span>
       </div>
 
-      <div class="drop-zone" id="dropZone"
-           ondragover="onDragOver(event)"
-           ondragleave="onDragLeave(event)"
-           ondrop="onDrop(event)">
-        <input type="file" id="fileInput" accept=".csv,.xlsx" onchange="onFileSelect(event)">
+      <!-- Hidden real file input -->
+      <input type="file" id="fileInput" accept=".csv,.xlsx" onchange="onFileSelect(event)" style="display:none">
+
+      <div class="drop-zone" id="dropZone">
+        <!-- Invisible full-coverage drag overlay — sits on top of all children -->
+        <div id="dragOverlay" style="position:absolute;inset:0;z-index:10;pointer-events:none"></div>
         <span class="drop-icon" id="dropIcon">📂</span>
         <div class="drop-title" id="dropTitle">Drag &amp; drop your Jira CSV here</div>
-        <div class="drop-sub" id="dropSub">or click to browse your files</div>
+        <div class="drop-sub" id="dropSub">or click the button below to browse</div>
+        <button type="button" class="browse-btn" id="browseBtn" onclick="openFilePicker(event)">
+          📁 Browse files
+        </button>
         <span class="drop-pill" id="dropPill">CSV / Excel export from Jira</span>
       </div>
 
@@ -502,23 +508,55 @@ let chartInst = {};
 /* ═══════════════════════════════════════════════════════════
    DRAG & DROP
 ═══════════════════════════════════════════════════════════ */
-function onDragOver(e) {
-  e.preventDefault();
-  document.getElementById('dropZone').classList.add('drag-over');
+/* ── DRAG & DROP — robust counter method ── */
+let dragCounter = 0;
+
+function initDropZone() {
+  const dz = document.getElementById('dropZone');
+
+  // Use document-level drag listeners to avoid child element issues
+  dz.addEventListener('dragenter', function(e) {
+    e.preventDefault();
+    dragCounter++;
+    dz.classList.add('drag-over');
+  });
+  dz.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    dragCounter--;
+    if(dragCounter <= 0) {
+      dragCounter = 0;
+      dz.classList.remove('drag-over');
+    }
+  });
+  dz.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  dz.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dragCounter = 0;
+    dz.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if(file) loadFile(file);
+    else toast('No file detected — try clicking Browse files instead', 'error');
+  });
+  dz.addEventListener('click', function(e) {
+    if(e.target.id !== 'browseBtn') {
+      document.getElementById('fileInput').click();
+    }
+  });
 }
-function onDragLeave(e) {
-  document.getElementById('dropZone').classList.remove('drag-over');
-}
-function onDrop(e) {
-  e.preventDefault();
-  document.getElementById('dropZone').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if(file) loadFile(file);
-}
+
 function onFileSelect(e) {
   const file = e.target.files[0];
   if(file) loadFile(file);
 }
+function openFilePicker(e) {
+  e.stopPropagation();
+  document.getElementById('fileInput').value = ''; // reset so same file can be re-selected
+  document.getElementById('fileInput').click();
+}
+function handleDropZoneClick(e) {}  // handled by initDropZone
 function loadFile(file) {
   if(!file.name.match(/\.(csv|xlsx)$/i)) { toast('Please upload a CSV or Excel file','error'); return; }
   Papa.parse(file, { header:true, skipEmptyLines:true, complete:(r)=>{
@@ -2313,6 +2351,7 @@ function copyJql() {
 
 renderGrids();
 refreshPreview();
+initDropZone();
 </script>
 </body>
 </html>
