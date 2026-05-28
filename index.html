@@ -1115,7 +1115,7 @@ function renderSlide(slide) {
     const now=new Date();
     const periodStart=new Date(now); periodStart.setDate(periodStart.getDate()-days);
     const halfway=new Date(periodStart); halfway.setDate(halfway.getDate()+Math.floor(days/2));
-    const REMOVED_STATUSES=['Rejected','Cancelled','Won't Do','Wont Do','Declined','Out of Scope'];
+    const REMOVED_STATUSES=['Rejected','Cancelled',"Won't Do",'Wont Do','Declined','Out of Scope'];
     const atStart=rows.filter(r=>{const d=pd(r['Created']); return d&&d<=periodStart;}).length;
     const addedEarly=rows.filter(r=>{const d=pd(r['Created']); return d&&d>periodStart&&d<=halfway;}).length;
     const addedLate=rows.filter(r=>{const d=pd(r['Created']); return d&&d>halfway&&d<=now;}).length;
