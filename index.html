@@ -266,16 +266,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
       </div>
 
       <!-- Hidden real file input -->
-      <input type="file" id="fileInput" accept=".csv,.xlsx" onchange="onFileSelect(event)" style="display:none">
+      <input type="file" id="fileInput" accept=".csv,.xlsx" multiple onchange="onFileSelect(event)" style="display:none">
 
       <div class="drop-zone" id="dropZone">
         <span class="drop-icon" id="dropIcon">📂</span>
         <div class="drop-title" id="dropTitle">Drag &amp; drop your Jira CSV here</div>
-        <div class="drop-sub" id="dropSub">or click the button below to browse</div>
+        <div class="drop-sub" id="dropSub">Drop one or both CSVs — or click Browse below</div>
         <button type="button" class="browse-btn" id="browseBtn" onclick="openFilePicker(event)">
           📁 Browse files
         </button>
-        <span class="drop-pill" id="dropPill">CSV / Excel export from Jira</span>
+        <span class="drop-pill" id="dropPill">Standard Jira CSV + Time in Status CSV</span>
       </div>
 
 
@@ -484,6 +484,7 @@ const FLOW = [
   {id:'lead_time',  name:'Lead Time',            desc:'Created to done total',        tag:'f', color:'#C97A2A', icon:'⌛'},
   {id:'forecast',   name:"Yesterday's Weather",  desc:'PERT-based forecast formula',  tag:'f', color:'#2E7D5E', icon:'🌤'},
   {id:'cfd',        name:'Created vs Resolved',  desc:'Demand vs delivery trend',     tag:'f', color:'#1C6B7A', icon:'↔'},
+  {id:'flow_eff',   name:'Flow Efficiency',      desc:'Active vs waiting time (TiS CSV)',tag:'f', color:'#2E7D5E', icon:'🌊'},
 ];
 const QUAL = [
   {id:'defect_ratio',    name:'Defect Ratio',        desc:'Bugs vs stories per period',   tag:'q', color:'#C0392B', icon:'🐛'},
@@ -506,6 +507,34 @@ let chartInst = {};
 /* ═══════════════════════════════════════════════════════════
    DRAG & DROP
 ═══════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════
+   TIME IN STATUS PARSER
+═══════════════════════════════════════════════════════════ */
+function parseTimeStr(str) {
+  if(!str || str.trim()==='-' || str.trim()==='') return 0;
+  let hours = 0;
+  const wk = str.match(/([\d.]+)w/); if(wk) hours += parseFloat(wk[1])*40;
+  const dy = str.match(/([\d.]+)d/); if(dy) hours += parseFloat(dy[1])*8;
+  const hr = str.match(/([\d.]+)h/); if(hr) hours += parseFloat(hr[1]);
+  const mn = str.match(/([\d.]+)m/); if(mn) hours += parseFloat(mn[1])/60;
+  return hours;
+}
+function isTimeInStatusCSV(headers) {
+  const tisCols = ['In Progress','In testing','In Code Review','Meets DoR','In Refinement'];
+  return tisCols.filter(function(c){return headers.indexOf(c)>=0;}).length >= 2;
+}
+function calcFlowEfficiency(row) {
+  const ACTIVE  = ['In Progress','In testing','In Code Review','Story Prep'];
+  const WAITING = ['To Do','Meets DoR','In Refinement','Blocked','Defined'];
+  let activeH=0, waitH=0;
+  ACTIVE.forEach(function(col){activeH+=parseTimeStr(row[col]||'');});
+  WAITING.forEach(function(col){waitH+=parseTimeStr(row[col]||'');});
+  const total=activeH+waitH;
+  return {activeHours:activeH, waitingHours:waitH, totalHours:total,
+          efficiency:total>0?Math.round((activeH/total)*100):null};
+}
+
 /* ── DRAG & DROP — robust counter method ── */
 let dragCounter = 0;
 
@@ -538,11 +567,13 @@ function initDropZone() {
     e.stopPropagation();
     dragCounter = 0;
     dz.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if(file) {
-      loadFile(file);
+    const files = Array.from(e.dataTransfer.files).filter(function(f){
+      return f.name.match(/\.(csv|xlsx)$/i);
+    });
+    if(files.length === 0) {
+      toast('No CSV files detected — try the Browse files button', 'error');
     } else {
-      toast('No file detected — try the Browse files button instead', 'error');
+      loadFiles(files);
     }
     return false;
   });
@@ -563,8 +594,8 @@ function initDropZone() {
 }
 
 function onFileSelect(e) {
-  const file = e.target.files[0];
-  if(file) loadFile(file);
+  const files = Array.from(e.target.files);
+  if(files.length) loadFiles(files);
 }
 function openFilePicker(e) {
   e.stopPropagation();
@@ -572,25 +603,81 @@ function openFilePicker(e) {
   document.getElementById('fileInput').click();
 }
 function handleDropZoneClick(e) {}  // handled by initDropZone
-function loadFile(file) {
-  if(!file.name.match(/\.(csv|xlsx)$/i)) { toast('Please upload a CSV or Excel file','error'); return; }
-  Papa.parse(file, { header:true, skipEmptyLines:true, complete:(r)=>{
-    rows = r.data;
-    window._csvRows = r.data;
-    calcStats(rows);
-    const dz = document.getElementById('dropZone');
-    dz.classList.add('loaded');
-    dz.classList.remove('drag-over');
+function loadFiles(files) {
+  var parsed = 0;
+  var results = {};
+  files.forEach(function(file) {
+    Papa.parse(file, { header:true, skipEmptyLines:true, complete:function(r) {
+      var headers = r.meta.fields || [];
+      if(isTimeInStatusCSV(headers)) {
+        results.tis = { data: r.data, name: file.name };
+      } else {
+        results.standard = { data: r.data, name: file.name };
+      }
+      parsed++;
+      if(parsed === files.length) mergeAndLoad(results, files.length);
+    }, error:function(){ toast('Could not parse '+file.name,'error'); }});
+  });
+}
+
+function mergeAndLoad(results, fileCount) {
+  var mainData = null, mainName = '';
+  if(results.standard) { mainData = results.standard.data; mainName = results.standard.name; }
+  else if(results.tis)  { mainData = results.tis.data;      mainName = results.tis.name; }
+  if(!mainData) { toast('No valid CSV found','error'); return; }
+
+  window._isTiSExport = !!results.tis;
+
+  // Merge TiS time columns into standard rows by Key
+  if(results.standard && results.tis) {
+    var tisMap = {};
+    results.tis.data.forEach(function(r){ if(r['Key']) tisMap[r['Key'].trim()] = r; });
+    mainData = mainData.map(function(r) {
+      var key = (r['Issue key']||r['Key']||'').trim();
+      var tRow = tisMap[key];
+      if(tRow) {
+        ['Defined','To Do','Meets DoR','In Refinement','Blocked',
+         'In Progress','In testing','In Code Review','Story Prep','Done'].forEach(function(col){
+          if(tRow[col]) r[col] = tRow[col];
+        });
+      }
+      return r;
+    });
+  }
+
+  rows = mainData;
+  window._csvRows = mainData;
+  calcStats(rows);
+
+  var dz = document.getElementById('dropZone');
+  dz.classList.add('loaded'); dz.classList.remove('drag-over');
+
+  if(fileCount === 2 && results.standard && results.tis) {
     document.getElementById('dropIcon').textContent = '✅';
-    document.getElementById('dropTitle').textContent = file.name;
+    document.getElementById('dropTitle').textContent = '2 files loaded successfully';
+    document.getElementById('dropSub').textContent = rows.length+' issues · Standard + Time in Status CSV';
+    document.getElementById('dropPill').textContent = '✓ Flow Efficiency unlocked 🎉';
+    toast(rows.length+' issues · Flow Efficiency unlocked 🎉');
+  } else if(window._isTiSExport) {
+    document.getElementById('dropIcon').textContent = '✅';
+    document.getElementById('dropTitle').textContent = mainName;
+    document.getElementById('dropSub').textContent = rows.length+' issues · Time in Status data included';
+    document.getElementById('dropPill').textContent = '✓ Flow Efficiency unlocked 🎉';
+    toast(rows.length+' issues · Flow Efficiency unlocked 🎉');
+  } else {
+    document.getElementById('dropIcon').textContent = '✅';
+    document.getElementById('dropTitle').textContent = mainName;
     document.getElementById('dropSub').textContent = rows.length+' issues loaded successfully';
     document.getElementById('dropPill').textContent = '✓ Ready to generate';
-    document.getElementById('snum1').classList.add('done');
-    document.getElementById('statsRow').style.display='block';
-    checkReady(); refreshPreview();
-    toast(rows.length+' issues loaded from '+file.name);
-  }, error:()=>toast('Could not parse file — check it is a valid CSV','error')});
+    toast(rows.length+' issues loaded from '+mainName);
+  }
+  document.getElementById('snum1').classList.add('done');
+  document.getElementById('statsRow').style.display = 'block';
+  checkReady(); refreshPreview();
 }
+
+function loadFile(file) { loadFiles([file]); }
+
 
 /* ═══════════════════════════════════════════════════════════
    STATS
@@ -1037,7 +1124,59 @@ function renderSlide(slide) {
   }
 
   // ── ARRIVAL RATE ──
-  else if(slide.id==='arrival_rate') {
+  else if(slide.id==='flow_eff') {
+    document.getElementById('ccSub').textContent='Active time vs waiting time — requires Time in Status CSV export';
+    const s=stats;
+    if(!rows.length){body.innerHTML=noData();return;}
+    if(!window._isTiSExport) {
+      body.innerHTML=`
+        <div style="background:#EEF4FF;border-left:4px solid #1C6B7A;border-radius:10px;padding:1.25rem;margin-bottom:.75rem">
+          <div style="font-size:.72rem;font-weight:600;color:#1C6B7A;margin-bottom:.4rem">TIME IN STATUS CSV REQUIRED</div>
+          <div style="font-size:.82rem;color:#24231F;line-height:1.55">This metric requires the <strong>Status Time Free</strong> Jira app export — not the standard Jira CSV.<br><br>
+          In Jira: Apps → Status Time Free → your report → Export CSV</div>
+        </div>
+        <div style="background:#FAF6F7;border-radius:8px;padding:10px 12px;font-size:.78rem;color:#7A6A6D">
+          Once uploaded, this slide will show Flow Efficiency % with active vs waiting breakdown per status.
+        </div>`;
+      return;
+    }
+    const fe=s.avgFE;
+    const feColor=fe===null?'#7A6A6D':fe>=40?'#2E7D5E':fe>=15?'#C97A2A':'#C0392B';
+    const feLabel=fe===null?'No data':fe>=40?'✅ Excellent flow':fe>=15?'⚠️ Room to improve':'🚨 Significant wait time';
+    body.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="background:${feColor}12;border-top:3px solid ${feColor};border-radius:8px;padding:12px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:2.2rem;color:${feColor};line-height:1">${fe!==null?fe+'%':'N/A'}</div>
+          <div style="font-size:.68rem;color:#7A6A6D;margin-top:3px">Avg Flow Efficiency</div>
+          <div style="font-size:.62rem;color:${feColor};margin-top:2px;font-weight:600">${feLabel}</div>
+        </div>
+        <div style="background:#2E7D5E12;border-top:3px solid #2E7D5E;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:2.2rem;color:#2E7D5E;line-height:1">${s.avgActiveH!==null?s.avgActiveH+'h':'N/A'}</div>
+          <div style="font-size:.68rem;color:#7A6A6D;margin-top:3px">Avg Active Time</div>
+          <div style="font-size:.62rem;color:#2E7D5E;margin-top:2px">In Progress · Testing · Review</div>
+        </div>
+        <div style="background:#C0392B12;border-top:3px solid #C0392B;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:2.2rem;color:#C0392B;line-height:1">${s.avgWaitH!==null?s.avgWaitH+'h':'N/A'}</div>
+          <div style="font-size:.68rem;color:#7A6A6D;margin-top:3px">Avg Waiting Time</div>
+          <div style="font-size:.62rem;color:#C0392B;margin-top:2px">To Do · DoR · Refinement · Blocked</div>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:.68rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:#7A6A6D;margin-bottom:5px">WHERE TIME IS SPENT — TOP WAITING STATUSES</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${Object.entries(s.topWait||{}).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([col,hrs])=>`
+            <div style="background:#C0392B12;border:1px solid #C0392B44;border-radius:7px;padding:6px 10px;text-align:center">
+              <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;color:#C0392B">${Math.round(hrs)}h</div>
+              <div style="font-size:.62rem;color:#7A6A6D">${col}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div style="background:#FAF6F7;border-radius:8px;padding:8px 12px;font-size:.72rem;color:#7A6A6D">
+        📌 Flow Efficiency = Active time ÷ (Active + Waiting) × 100 · Based on ${s.feScores.length} issues · Industry benchmark: 15–40%
+      </div>`;
+  }
+
+    else if(slide.id==='arrival_rate') {
     document.getElementById('ccSub').textContent='New items created per week — demand pressure on the team';
     if(!rows.length){body.innerHTML=noData();return;}
     const wks={};
@@ -1813,6 +1952,7 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     {id:'lead_time',  name:'Lead Time',            sub:'P50 = typical  P85 = safe stakeholder SLA',   acc:C.orange},
     {id:'forecast',   name:"Yesterday's Weather",  sub:'PERT-based delivery forecast',                acc:C.green},
     {id:'cfd',        name:'Created vs Resolved',  sub:'Demand vs delivery trend',                    acc:C.teal},
+    {id:'flow_eff',   name:'Flow Efficiency',      sub:'Active vs waiting time — requires Time in Status CSV', acc:C.green},
     {id:'defect_ratio',name:'Defect Ratio',        sub:'Bugs vs stories completed per period',        acc:C.crimson},
     {id:'escape_rate', name:'Defect Escape Rate',  sub:'Bugs found after stories marked Done',        acc:C.plum},
     {id:'avg_age',     name:'Average Age of Bugs', sub:'Days open bugs exist without resolution',     acc:C.orange},
@@ -2053,7 +2193,43 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
       }
     }
 
-    // ARRIVAL RATE
+    // FLOW EFFICIENCY (Time in Status export)
+    else if(m.id==='flow_eff') {
+      const isTiS = window._isTiSExport;
+      if(!isTiS) {
+        addRect(sl,0.35,1.0,9.30,1.10,'EEF4FF',C.teal,0.5);
+        addRect(sl,0.35,1.0,0.06,1.10,C.teal);
+        addTxt(sl,'TIME IN STATUS CSV REQUIRED',0.55,1.08,9.0,0.24,8,C.teal,{bold:true});
+        addTxt(sl,'Export from: Jira Apps → Status Time Free → your report → Export CSV',0.55,1.38,9.0,0.40,10,C.black);
+      } else {
+        const fe=s.avgFE; const feC=fe===null?C.muted:fe>=40?C.green:fe>=15?C.orange:C.crimson;
+        const feL=fe===null?'No data':fe>=40?'Excellent flow':fe>=15?'Room to improve':'Significant wait time';
+        addMetricCard(sl,0.35,1.0,2.95,1.40,feC,'Avg Flow Efficiency',fe!==null?fe+'%':'N/A',feL);
+        addMetricCard(sl,3.52,1.0,2.95,1.40,C.green,'Avg Active Time',s.avgActiveH!==null?s.avgActiveH+'h':'N/A','In Progress + Testing + Review');
+        addMetricCard(sl,6.70,1.0,2.95,1.40,C.crimson,'Avg Waiting Time',s.avgWaitH!==null?s.avgWaitH+'h':'N/A','To Do + DoR + Refinement + Blocked');
+
+        // Status banner
+        addRect(sl,0.35,2.58,9.30,0.65,feC+'18',feC,0.5);
+        addRect(sl,0.35,2.58,0.06,0.65,feC);
+        addTxt(sl,fe!==null?(fe+'% flow efficiency — '+feL):'Insufficient data',0.55,2.70,8.90,0.42,11,C.black);
+
+        // Top waiting statuses bar chart
+        addTxt(sl,'TOP WAITING STATUSES (total hours across all issues)',0.35,3.38,9.3,0.22,8,C.muted,{bold:true});
+        const waitEntries=Object.entries(s.topWait||{}).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+        if(waitEntries.length) {
+          const maxW=waitEntries[0][1]||1;
+          waitEntries.forEach(function(e,i){
+            const bw=Math.max((e[1]/maxW)*8.5,0.05);
+            addRect(sl,0.35,3.65+i*0.36,bw,0.26,C.crimson);
+            addTxt(sl,e[0],0.45,3.67+i*0.36,2.5,0.22,8,C.white,{bold:true});
+            addTxt(sl,Math.round(e[1])+'h',bw+0.45,3.67+i*0.36,1.5,0.22,8,C.muted,{});
+          });
+        }
+        addTxt(sl,'Flow Efficiency = Active time / Total time x 100. Industry benchmark: 15-40%. Based on '+s.feScores.length+' issues.',0.35,5.28,9.30,0.22,7,C.muted,{italic:true});
+      }
+    }
+
+        // ARRIVAL RATE
     else if(m.id==='arrival_rate') {
       const wks={};
       csvRows.forEach(function(r){
