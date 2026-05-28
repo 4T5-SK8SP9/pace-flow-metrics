@@ -499,7 +499,7 @@ const QUAL = [
   {id:'arrival_rate',    name:'Arrival Rate',        desc:'New items created per week',   tag:'q', color:'#2E7D5E', icon:'📥'},
   {id:'completion_rate', name:'Completion Rate',     desc:'% of started items finished',  tag:'q', color:'#B5598C', icon:'✅'},
   {id:'scope_stability', name:'Scope Stability',     desc:'Items added vs planned',       tag:'q', color:'#C97A2A', icon:'📐'},
-  {id:'time_in_status',  name:'Time in Status',      desc:'How to track time per column', tag:'q', color:'#1C6B7A', icon:'⏳'},
+  {id:'time_in_status',  name:'Time in Status',      desc:'Avg time per status column (TiS CSV)', tag:'q', color:'#1C6B7A', icon:'⏳'},
 ];
 
 let sel     = new Set(['cycle_time','throughput','wip']);
@@ -760,8 +760,18 @@ function calcStats(data) {
     if(c&&res){ const d=Math.round((res-c)/864e5); if(d>=0&&d<365) lt.push(d); }
     if(c&&chg&&(cat==='Done'||status==='Done')){ const d=Math.round((chg-c)/864e5); if(d>=0&&d<365) ct.push(d); }
   });
-  const ACTIVE = ['In Progress','Verify','In Review','Selected for Development','In Testing'];
-  const wip = ACTIVE.reduce((a,s)=>a+(sm[s]||0),0);
+  // Use Status Category 'In Progress' for WIP — catches all active statuses
+  const wip = Object.entries(sm).filter(function(e){
+    const rows_for_status = data.filter(function(r){ return (r['Status']||'').trim()===e[0]; });
+    if(!rows_for_status.length) return false;
+    const cat = (rows_for_status[0]['Status Category']||'').trim().toLowerCase();
+    return cat==='in progress';
+  }).reduce(function(a,e){ return a+e[1]; }, 0) ||
+  // Fallback: exclude clearly non-active statuses
+  Object.entries(sm).filter(function(e){
+    const s=e[0].toLowerCase();
+    return s!=='done'&&s!=='to do'&&s!=='backlog'&&s!=='new'&&s!=='proposed'&&s!=='rejected'&&s!=='archived'&&s!=='cancelled';
+  }).reduce(function(a,e){ return a+e[1]; }, 0);
   const avgCT = ct.length ? Math.round(ct.reduce((a,b)=>a+b,0)/ct.length) : null;
   const avgLT = lt.length ? Math.round(lt.reduce((a,b)=>a+b,0)/lt.length) : null;
   const minCT = ct.length ? Math.min(...ct) : null;
@@ -939,8 +949,8 @@ function renderSlide(slide) {
   else if(slide.id==='wip') {
     const teamSize = parseInt(document.getElementById('teamSize').value)||0;
     document.getElementById('ccSub').textContent='WIP analysis'+(teamSize?' — team of '+teamSize:'');
-    const excl=['Done','To Do','Backlog','Proposed','Rejected','Archived'];
-    const active=Object.entries(s.sm).filter(([st])=>!excl.includes(st));
+    const excl=['done','to do','backlog','proposed','rejected','archived','cancelled','new'];
+    const active=Object.entries(s.sm).filter(([st])=>!excl.includes(st.toLowerCase()));
     const totalWip = active.reduce((a,[,v])=>a+v,0);
 
     if(!active.length){body.innerHTML=noData('No active WIP columns found');return;}
@@ -1161,8 +1171,12 @@ function renderSlide(slide) {
   else if(slide.id==='wip_age') {
     document.getElementById('ccSub').textContent='How long have active items been in progress?';
     const now=new Date();
-    const ACTIVE=['In Progress','Verify','In Review','Selected for Development'];
-    const ages=rows.filter(r=>ACTIVE.includes((r['Status']||'').trim())).map(r=>{
+    // Use Status Category to catch all active statuses regardless of team naming
+    const ages=rows.filter(r=>{
+      const cat=(r['Status Category']||'').trim().toLowerCase();
+      const st=(r['Status']||'').trim().toLowerCase();
+      return cat==='in progress' || (!cat && st!=='done' && st!=='to do' && st!=='backlog' && st!=='new' && st!=='proposed' && st!=='rejected');
+    }).map(r=>{
       const c=pd(r['Created']); return c?{name:(r['Summary']||'').slice(0,40),days:Math.round((now-c)/864e5)}:null;
     }).filter(Boolean).sort((a,b)=>b.days-a.days).slice(0,5);
     if(!ages.length){body.innerHTML=noData('No active WIP items found');return;}
@@ -1178,8 +1192,7 @@ function renderSlide(slide) {
   else if(slide.id==='flow_eff') {
     document.getElementById('ccSub').textContent='Active time vs waiting time — requires Time in Status CSV export';
     const s=stats;
-    if(!rows.length){body.innerHTML=noData();return;}
-    if(!window._isTiSExport) {
+    if(!rows.length || !window._isTiSExport) {
       body.innerHTML=`
         <div style="background:#EEF4FF;border-left:4px solid #1C6B7A;border-radius:10px;padding:1.25rem;margin-bottom:.75rem">
           <div style="font-size:.72rem;font-weight:600;color:#1C6B7A;margin-bottom:.4rem">TIME IN STATUS CSV REQUIRED</div>
@@ -1191,6 +1204,7 @@ function renderSlide(slide) {
         </div>`;
       return;
     }
+    // TiS data is available — render full slide
     const fe=s.avgFE;
     const feColor=fe===null?'#7A6A6D':fe>=40?'#2E7D5E':fe>=15?'#C97A2A':'#C0392B';
     const feLabel=fe===null?'No data':fe>=40?'✅ Excellent flow':fe>=15?'⚠️ Room to improve':'🚨 Significant wait time';
@@ -1360,32 +1374,79 @@ function renderSlide(slide) {
 
   // ── TIME IN STATUS ──
   else if(slide.id==='time_in_status') {
-    document.getElementById('ccSub').textContent='Not in standard CSV — here is how to track it';
-    body.innerHTML=`
-      <div style="background:#EEF4FF;border-left:4px solid #1C6B7A;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.75rem">
-        <div style="font-size:.72rem;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:#1C6B7A;margin-bottom:.4rem">WHY IT'S NOT IN YOUR CSV</div>
-        <div style="font-size:.82rem;color:#24231F;line-height:1.55">Jira's standard CSV export only records <em>current</em> status — not how long each issue spent in each column. Time in Status requires status transition history.</div>
+    const tisCols = ['Defined','To Do','Meets DoR','In Refinement','Blocked','In Progress','In testing','In Code Review','Story Prep','Done'];
+    const activeC = ['In Progress','In testing','In Code Review','Story Prep'];
+    const waitC   = ['Defined','To Do','Meets DoR','In Refinement','Blocked'];
+
+    if(!window._isTiSExport || !rows.length) {
+      document.getElementById('ccSub').textContent='Drop your Status Time Free CSV to see real data';
+      body.innerHTML=`
+        <div style="background:#EEF4FF;border-left:4px solid #1C6B7A;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.75rem">
+          <div style="font-size:.72rem;font-weight:600;color:#1C6B7A;margin-bottom:.4rem">STATUS TIME FREE CSV REQUIRED</div>
+          <div style="font-size:.82rem;color:#24231F;line-height:1.55">Drop your <strong>Status Time Free</strong> CSV export alongside your standard Jira CSV to see avg time per status column.</div>
+        </div>
+        <div style="background:#FAF6F7;border-radius:8px;padding:8px 12px;font-size:.78rem;color:#7A6A6D">
+          In Jira: Apps → Status Time Free → your report → Export CSV — then drop both files together.
+        </div>`;
+      return;
+    }
+
+    document.getElementById('ccSub').textContent='Average time spent in each workflow column across all issues';
+
+    // Calculate avg hours per status column
+    const colData = tisCols.map(function(col) {
+      const vals = rows.map(function(r){ return parseTimeStr(r[col]||''); }).filter(function(v){ return v>0; });
+      const avg = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
+      const isActive = activeC.indexOf(col)>=0;
+      return { col, avg: Math.round(avg*10)/10, count: vals.length, isActive };
+    }).filter(function(d){ return d.avg>0; }).sort(function(a,b){ return b.avg-a.avg; });
+
+    if(!colData.length) { body.innerHTML=noData('No time data found in this export'); return; }
+
+    const maxAvg = colData[0].avg || 1;
+    const totalActive  = colData.filter(function(d){ return d.isActive; }).reduce(function(a,d){ return a+d.avg; },0);
+    const totalWaiting = colData.filter(function(d){ return !d.isActive; }).reduce(function(a,d){ return a+d.avg; },0);
+    const fe = totalActive+totalWaiting>0 ? Math.round(totalActive/(totalActive+totalWaiting)*100) : null;
+
+    let html = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:#2E7D5E12;border-top:3px solid #2E7D5E;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#2E7D5E">${Math.round(totalActive*10)/10}h</div>
+          <div style="font-size:.62rem;color:#7A6A6D">Avg Active Time</div>
+        </div>
+        <div style="background:#C0392B12;border-top:3px solid #C0392B;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#C0392B">${Math.round(totalWaiting*10)/10}h</div>
+          <div style="font-size:.62rem;color:#7A6A6D">Avg Waiting Time</div>
+        </div>
+        <div style="background:${fe>=40?'#2E7D5E':fe>=15?'#C97A2A':'#C0392B'}12;border-top:3px solid ${fe>=40?'#2E7D5E':fe>=15?'#C97A2A':'#C0392B'};border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:${fe>=40?'#2E7D5E':fe>=15?'#C97A2A':'#C0392B'}">${fe!==null?fe+'%':'N/A'}</div>
+          <div style="font-size:.62rem;color:#7A6A6D">Flow Efficiency</div>
+        </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div style="background:#FAF6F7;border-radius:8px;border:1px solid #E8E0E2;padding:10px 12px">
-          <div style="font-size:.7rem;font-weight:600;color:#B5598C;margin-bottom:5px">PLUGIN OPTIONS</div>
-          <div style="font-size:.78rem;color:#24231F;line-height:1.6">
-            <strong>Screenful</strong> — best visual dashboard<br>
-            <strong>EazyBI</strong> — powerful, needs setup<br>
-            <strong>Jira Align</strong> — enterprise option<br>
-            <strong>Time in Status</strong> — dedicated app
+      <div style="display:flex;flex-direction:column;gap:5px">`;
+
+    colData.forEach(function(d) {
+      const barW = Math.max((d.avg/maxAvg)*100,2);
+      const col  = d.isActive ? '#2E7D5E' : '#C0392B';
+      const tag  = d.isActive ? 'Active' : 'Waiting';
+      const hrs  = d.avg >= 8 ? Math.round(d.avg/8*10)/10+'d' : d.avg+'h';
+      html += `<div style="display:flex;align-items:center;gap:8px">
+        <div style="width:110px;font-size:.72rem;color:#24231F;text-align:right;flex-shrink:0">${d.col}</div>
+        <div style="flex:1;background:#f0f0f0;border-radius:4px;height:20px;overflow:hidden">
+          <div style="width:${barW}%;height:100%;background:${col};border-radius:4px;display:flex;align-items:center;padding:0 6px">
+            <span style="font-size:.65rem;color:white;font-weight:600;white-space:nowrap">${hrs}</span>
           </div>
         </div>
-        <div style="background:#FAF6F7;border-radius:8px;border:1px solid #E8E0E2;padding:10px 12px">
-          <div style="font-size:.7rem;font-weight:600;color:#2E7D5E;margin-bottom:5px">MANUAL METHOD</div>
-          <div style="font-size:.78rem;color:#24231F;line-height:1.6">
-            1. Jira → Issues → select issue<br>
-            2. View <strong>History</strong> tab<br>
-            3. Note status change dates<br>
-            4. Calculate days per status
-          </div>
-        </div>
+        <div style="width:50px;font-size:.62rem;color:${col};font-weight:500;flex-shrink:0">${tag}</div>
       </div>`;
+    });
+
+    html += `</div>
+      <div style="margin-top:8px;background:#FAF6F7;border-radius:6px;padding:6px 10px;font-size:.68rem;color:#7A6A6D">
+        🟢 Active = work happening · 🔴 Waiting = item sitting · Based on ${rows.length} issues
+      </div>`;
+
+    body.innerHTML = html;
   }
 
   else {
@@ -2061,8 +2122,8 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     }
 
     else if(m.id==='wip') {
-      const excl=['Done','To Do','Backlog','Proposed','Rejected','Archived'];
-      const actv=Object.entries(s.sm).filter(function(e){return excl.indexOf(e[0])<0;});
+      const exclL=['done','to do','backlog','proposed','rejected','archived','cancelled','new'];
+      const actv=Object.entries(s.sm).filter(function(e){return exclL.indexOf(e[0].toLowerCase())<0;});
       const totalWip=actv.reduce(function(a,e){return a+e[1];},0);
       const teamSz=parseInt(document.getElementById('teamSize').value)||0;
       const accs=[C.red,C.plum,C.orange,C.green,C.teal,C.black];
@@ -2225,9 +2286,12 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     }
 
     else if(m.id==='wip_age') {
-      const ACTV=['In Progress','Verify','In Review','Selected for Development'];
       const now=new Date();
-      const aged=csvRows.filter(function(r){return ACTV.indexOf((r['Status']||'').trim())>=0;}).map(function(r){
+      const aged=csvRows.filter(function(r){
+        const cat=(r['Status Category']||'').trim().toLowerCase();
+        const st=(r['Status']||'').trim().toLowerCase();
+        return cat==='in progress'||(!cat&&st!=='done'&&st!=='to do'&&st!=='backlog'&&st!=='new'&&st!=='proposed'&&st!=='rejected');
+      }).map(function(r){
         const c=pd(r['Created']); return c?{name:(r['Summary']||'Untitled').slice(0,55),days:Math.round((now-c)/864e5)||0}:null;
       }).filter(Boolean).sort(function(a,b){return b.days-a.days;}).slice(0,5);
       if(aged.length){
@@ -2417,24 +2481,45 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
 
     // TIME IN STATUS
     else if(m.id==='time_in_status') {
-      addRect(sl,0.35,1.0,9.30,1.10,C.teal+'18',C.teal,0.5);
-      addRect(sl,0.35,1.0,0.06,1.10,C.teal);
-      addTxt(sl,'NOT IN STANDARD JIRA CSV EXPORT',0.55,1.08,9.0,0.24,8,C.teal,{bold:true});
-      addTxt(sl,'Time in Status requires status transition history. The standard CSV only captures current status.',0.55,1.32,9.0,0.50,10,C.black);
+      var tisCols2=['Defined','To Do','Meets DoR','In Refinement','Blocked','In Progress','In testing','In Code Review','Story Prep','Done'];
+      var activeC2=['In Progress','In testing','In Code Review','Story Prep'];
 
-      addTxt(sl,'PLUGIN OPTIONS',0.35,2.25,4.45,0.22,8,C.plum,{bold:true});
-      ['Screenful — best visual flow dashboard','EazyBI — powerful, requires configuration','Time in Status app — dedicated Jira plugin','Jira Align — enterprise reporting'].forEach(function(line,i){
-        addRect(sl,0.35,2.50+i*0.52,4.45,0.44,C.white,C.lgrey,0.5);
-        addRect(sl,0.35,2.50+i*0.52,0.06,0.44,C.plum);
-        addTxt(sl,line,0.52,2.58+i*0.52,4.18,0.28,9,C.black);
-      });
+      if(!window._isTiSExport) {
+        addRect(sl,0.35,1.0,9.30,1.10,C.teal+'18',C.teal,0.5);
+        addRect(sl,0.35,1.0,0.06,1.10,C.teal);
+        addTxt(sl,'STATUS TIME FREE CSV REQUIRED',0.55,1.08,9.0,0.24,8,C.teal,{bold:true});
+        addTxt(sl,'Drop your Status Time Free CSV alongside the standard Jira CSV to see avg time per status column.',0.55,1.38,9.0,0.40,10,C.black);
+        addTxt(sl,'In Jira: Apps → Status Time Free → your report → Export CSV',0.55,1.85,9.0,0.30,9,C.muted,{italic:true});
+      } else {
+        var colData2=tisCols2.map(function(col){
+          var vals=csvRows.map(function(r){return parseTimeStr(r[col]||'');}).filter(function(v){return v>0;});
+          var avg=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
+          return {col:col, avg:Math.round(avg*10)/10, isActive:activeC2.indexOf(col)>=0};
+        }).filter(function(d){return d.avg>0;}).sort(function(a,b){return b.avg-a.avg;});
 
-      addTxt(sl,'MANUAL METHOD',5.10,2.25,4.55,0.22,8,C.green,{bold:true});
-      ['1.  Open any Jira issue','2.  Click the History tab','3.  Note each status change date','4.  Calculate days spent per status','5.  Average across 10-20 issues'].forEach(function(line,i){
-        addRect(sl,5.10,2.50+i*0.52,4.55,0.44,C.white,C.lgrey,0.5);
-        addRect(sl,5.10,2.50+i*0.52,0.06,0.44,C.green);
-        addTxt(sl,line,5.28,2.58+i*0.52,4.28,0.28,9,C.black);
-      });
+        var totA=colData2.filter(function(d){return d.isActive;}).reduce(function(a,d){return a+d.avg;},0);
+        var totW=colData2.filter(function(d){return !d.isActive;}).reduce(function(a,d){return a+d.avg;},0);
+        var fe2=totA+totW>0?Math.round(totA/(totA+totW)*100):null;
+
+        // Summary cards
+        addMetricCard(sl,0.35,1.0,2.95,1.25,C.green,'Avg Active Time',Math.round(totA*10)/10+'h','In Progress + Testing + Review');
+        addMetricCard(sl,3.52,1.0,2.95,1.25,C.crimson,'Avg Waiting Time',Math.round(totW*10)/10+'h','To Do + DoR + Refinement + Blocked');
+        addMetricCard(sl,6.70,1.0,2.95,1.25,fe2>=40?C.green:fe2>=15?C.orange:C.crimson,'Flow Efficiency',fe2!==null?fe2+'%':'N/A','Active / Total time');
+
+        // Bar chart
+        addTxt(sl,'AVG TIME PER STATUS — sorted highest to lowest',0.35,2.42,9.3,0.22,8,C.muted,{bold:true});
+        var maxA=colData2.length?colData2[0].avg:1;
+        colData2.slice(0,8).forEach(function(d,i){
+          var bw=Math.max((d.avg/maxA)*7.0,0.05);
+          var bc=d.isActive?C.green:C.crimson;
+          var hrs=d.avg>=8?Math.round(d.avg/8*10)/10+'d':d.avg+'h';
+          addTxt(sl,d.col,0.35,2.65+i*0.34,1.80,0.28,8,C.black,{align:'right'});
+          addRect(sl,2.20,2.68+i*0.34,bw,0.22,bc);
+          addTxt(sl,hrs,2.25+bw,2.68+i*0.34,1.0,0.22,8,bc,{bold:true});
+          addTxt(sl,d.isActive?'Active':'Waiting',2.25+bw+1.05,2.68+i*0.34,1.0,0.22,7,C.muted,{});
+        });
+        addTxt(sl,'Green = Active (work happening)   Red = Waiting (item sitting)   Based on '+csvRows.length+' issues',0.35,5.28,9.30,0.22,7,C.muted,{italic:true});
+      }
     }
 
     else {
