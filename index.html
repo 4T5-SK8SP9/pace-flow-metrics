@@ -929,27 +929,39 @@ function renderSlide(slide) {
   else if(slide.id==='avg_age') {
     document.getElementById('ccSub').textContent='How long are known bugs sitting unresolved?';
     const now=new Date();
-    const bugAges=rows.filter(r=>(r['Issue Type']||'').trim()==='Bug'&&(r['Status Category']||'').trim()!=='Done').map(r=>{
+    const openBugs=rows.filter(r=>(r['Issue Type']||'').trim()==='Bug'&&(r['Status Category']||'').trim()!=='Done'&&(r['Status']||'').trim()!=='Done');
+    const bugAges=openBugs.map(r=>{
       const c=pd(r['Created']); return c?Math.round((now-c)/864e5):null;
     }).filter(d=>d!==null&&d<365);
-    if(!bugAges.length){body.innerHTML=noData('No open bugs found');return;}
+    if(!bugAges.length){body.innerHTML=noData('No open bugs found — check issue type is "Bug" in your export');return;}
     const avgAge=Math.round(bugAges.reduce((a,b)=>a+b,0)/bugAges.length);
+    const minAge=Math.min(...bugAges);
+    const maxAge=Math.max(...bugAges);
+    const bugCount=bugAges.length;
     body.innerHTML=`
+      <div style="background:#f3eaf8;border-left:3px solid #B5598C;border-radius:8px;padding:7px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:.78rem;font-weight:600;color:#B5598C">Open bugs analysed</span>
+        <span style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#B5598C">${bugCount} bug${bugCount!==1?'s':''}</span>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C97A2A">${Math.min(...bugAges)}d</div>
+        <div style="background:#fff3e0;border-top:3px solid #2E7D5E;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#2E7D5E">${minAge}d</div>
           <div style="font-size:.65rem;color:#7A6A6D">Youngest</div>
+          ${bugCount===1?'<div style="font-size:.6rem;color:#aaa;margin-top:2px">only 1 bug</div>':''}
         </div>
-        <div style="background:#fff3e0;border-top:3px solid #C0392B;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${avgAge}d</div>
+        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C97A2A">${avgAge}d</div>
           <div style="font-size:.65rem;color:#7A6A6D">Average age</div>
+          ${bugCount===1?'<div style="font-size:.6rem;color:#aaa;margin-top:2px">only 1 bug</div>':''}
         </div>
         <div style="background:#fff3e0;border-top:3px solid #C0392B;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${Math.max(...bugAges)}d</div>
+          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${maxAge}d</div>
           <div style="font-size:.65rem;color:#7A6A6D">Oldest</div>
+          ${bugCount===1?'<div style="font-size:.6rem;color:#aaa;margin-top:2px">only 1 bug</div>':''}
         </div>
       </div>
-      <div style="background:#FAF6F7;border-radius:8px;padding:.9rem;font-size:.78rem;color:#24231F;line-height:1.5">
+      ${bugCount===1?'<div style="background:#EEF4FF;border-left:3px solid #1C6B7A;border-radius:8px;padding:8px 12px;font-size:.75rem;color:#24231F;margin-bottom:8px">ℹ️ Only 1 open bug found — youngest, average and oldest are the same item. Export a wider date range to see more.</div>':''}
+      <div style="background:#FAF6F7;border-radius:8px;padding:.75rem;font-size:.78rem;color:#24231F;line-height:1.5">
         ${avgAge>14?'⚠️ Average bug age exceeds 14 days — bugs are being accepted as normal. Challenge the team to set a maximum age policy.':'✅ Bugs are being addressed promptly. Keep the momentum going.'}
       </div>`;
   }
@@ -1044,42 +1056,62 @@ function renderSlide(slide) {
 
   // ── SCOPE STABILITY ──
   else if(slide.id==='scope_stability') {
-    document.getElementById('ccSub').textContent='Items added mid-period vs items at start of period';
+    document.getElementById('ccSub').textContent='Items added or removed mid-period vs items at start';
     if(!rows.length){body.innerHTML=noData();return;}
     const days=parseInt(document.getElementById('jqlDays').value)||30;
     const now=new Date();
     const periodStart=new Date(now); periodStart.setDate(periodStart.getDate()-days);
     const halfway=new Date(periodStart); halfway.setDate(halfway.getDate()+Math.floor(days/2));
+    const REMOVED_STATUSES=['Rejected','Cancelled','Won't Do','Wont Do','Declined','Out of Scope'];
     const atStart=rows.filter(r=>{const d=pd(r['Created']); return d&&d<=periodStart;}).length;
     const addedEarly=rows.filter(r=>{const d=pd(r['Created']); return d&&d>periodStart&&d<=halfway;}).length;
     const addedLate=rows.filter(r=>{const d=pd(r['Created']); return d&&d>halfway&&d<=now;}).length;
+    const removed=rows.filter(r=>{
+      const d=pd(r['Created']||r['Updated']);
+      const status=(r['Status']||'').trim();
+      return d&&d>=periodStart&&REMOVED_STATUSES.some(s=>status.toLowerCase().includes(s.toLowerCase()));
+    }).length;
     const totalAdded=addedEarly+addedLate;
-    const stability=atStart>0?Math.round((1-(totalAdded/(atStart+totalAdded)))*100):null;
+    const netChange=totalAdded-removed;
+    const total=atStart+totalAdded;
+    const stability=total>0?Math.round((atStart/total)*100):null;
+    const churnLabel=netChange>0?'+'+netChange+' net added':netChange<0?netChange+' net removed':'No net change';
+    const churnColor=Math.abs(netChange)<=2?'#2E7D5E':Math.abs(netChange)<=5?'#C97A2A':'#C0392B';
     const statusColor=stability===null?'#7A6A6D':stability>=80?'#2E7D5E':stability>=60?'#C97A2A':'#C0392B';
     body.innerHTML=`
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-        <div style="background:#FAF6F7;border-top:3px solid #24231F;border-radius:8px;padding:9px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#24231F">${atStart}</div>
-          <div style="font-size:.62rem;color:#7A6A6D">At period start</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px">
+        <div style="background:#FAF6F7;border-top:3px solid #24231F;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#24231F">${atStart}</div>
+          <div style="font-size:.6rem;color:#7A6A6D">At start</div>
         </div>
-        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:9px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C97A2A">${addedEarly}</div>
-          <div style="font-size:.62rem;color:#7A6A6D">Added early</div>
+        <div style="background:#fff3e0;border-top:3px solid #C97A2A;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#C97A2A">+${addedEarly}</div>
+          <div style="font-size:.6rem;color:#7A6A6D">Added early</div>
         </div>
-        <div style="background:#ffe8e8;border-top:3px solid #C0392B;border-radius:8px;padding:9px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#C0392B">${addedLate}</div>
-          <div style="font-size:.62rem;color:#7A6A6D">Added late</div>
+        <div style="background:#ffe8e8;border-top:3px solid #C0392B;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#C0392B">+${addedLate}</div>
+          <div style="font-size:.6rem;color:#7A6A6D">Added late</div>
         </div>
-        <div style="background:${statusColor}12;border-top:3px solid ${statusColor};border-radius:8px;padding:9px;text-align:center">
-          <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:${statusColor}">${stability!==null?stability+'%':'N/A'}</div>
-          <div style="font-size:.62rem;color:#7A6A6D">Stability score</div>
+        <div style="background:#e8f5ee;border-top:3px solid #2E7D5E;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:#2E7D5E">-${removed}</div>
+          <div style="font-size:.6rem;color:#7A6A6D">Rejected</div>
+        </div>
+        <div style="background:${statusColor}12;border-top:3px solid ${statusColor};border-radius:8px;padding:8px;text-align:center">
+          <div style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:${statusColor}">${stability!==null?stability+'%':'N/A'}</div>
+          <div style="font-size:.6rem;color:#7A6A6D">Stability</div>
         </div>
       </div>
-      <div style="background:${statusColor}12;border-left:4px solid ${statusColor};border-radius:8px;padding:10px 12px;margin-bottom:8px">
-        <div style="font-size:.82rem;font-weight:600;color:${statusColor}">${stability===null?'Set date range in JQL helper':stability>=80?'✅ Stable scope — good planning discipline':stability>=60?'⚠️ Moderate scope creep — review intake process':'🚨 High scope creep — items added frequently mid-period'}</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div style="background:${churnColor}12;border-left:3px solid ${churnColor};border-radius:8px;padding:8px 12px;flex:1">
+          <div style="font-size:.7rem;font-weight:600;color:${churnColor};margin-bottom:2px">NET SCOPE CHANGE</div>
+          <div style="font-family:'DM Serif Display',serif;font-size:1.2rem;color:${churnColor}">${churnLabel}</div>
+        </div>
+        <div style="background:${statusColor}12;border-left:3px solid ${statusColor};border-radius:8px;padding:8px 12px;flex:2">
+          <div style="font-size:.82rem;font-weight:600;color:${statusColor}">${stability===null?'Set date range in JQL helper':stability>=80?'✅ Stable scope — good planning discipline':stability>=60?'⚠️ Moderate scope creep — review intake process':'🚨 High scope creep — frequent mid-period changes'}</div>
+        </div>
       </div>
-      <div style="background:#FAF6F7;border-radius:8px;padding:8px 12px;font-size:.72rem;color:#7A6A6D">
-        📌 Stability = Items at start ÷ Total items × 100 — higher is better. Use JQL date range to set the period.
+      <div style="background:#FAF6F7;border-radius:8px;padding:7px 12px;font-size:.7rem;color:#7A6A6D">
+        📌 Removed = status is Rejected / Cancelled / Won't Do · Stability = items at start ÷ total added × 100
       </div>`;
   }
 
@@ -1564,12 +1596,41 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     }
 
     else if(m.id==='avg_age') {
-      addCard(sl,0.35,1.0,9.30,3.80,C.orange,'FFFBF5');
-      addTxt(sl,'HOW TO CALCULATE AVERAGE BUG AGE',0.55,1.15,9.0,0.26,9,C.orange,{bold:true});
-      ['1.  Go to Jira Issues - filter by Type=Bug and Status not Done','2.  Export as CSV','3.  In Excel: =TODAY() minus Created date for each bug','4.  Average the column of results','5.  Target: no critical bug older than 7 days'].forEach(function(line,i){
-        addTxt(sl,line,0.55,1.60+i*0.50,9.0,0.40,10,C.black);
-      });
-      addTxt(sl,'Requires Screenful or EazyBI plugin for automated tracking.',0.55,4.25,9.0,0.36,9,C.orange,{italic:true});
+      const now2=new Date();
+      const openBugs2=csvRows.filter(function(r){return (r['Issue Type']||'').trim()==='Bug'&&(r['Status Category']||'').trim()!=='Done'&&(r['Status']||'').trim()!=='Done';});
+      const bugAges2=openBugs2.map(function(r){const c=pd(r['Created']);return c?Math.round((now2-c)/864e5):null;}).filter(function(d){return d!==null&&d<365;});
+      const bugCount2=bugAges2.length;
+      const avgAge2=bugCount2?Math.round(bugAges2.reduce(function(a,b){return a+b;},0)/bugCount2):0;
+      const minAge2=bugCount2?Math.min.apply(null,bugAges2):0;
+      const maxAge2=bugCount2?Math.max.apply(null,bugAges2):0;
+
+      // Bug count banner
+      addRect(sl,0.35,1.0,9.30,0.50,C.plum+'18',C.plum,0.5);
+      addRect(sl,0.35,1.0,0.06,0.50,C.plum);
+      addTxt(sl,'OPEN BUGS ANALYSED',0.55,1.06,4.0,0.22,8,C.plum,{bold:true});
+      addTxt(sl,String(bugCount2)+' bug'+(bugCount2!==1?'s':''),4.55,1.06,5.0,0.28,16,C.plum,{bold:true,align:'right'});
+
+      if(bugCount2===0) {
+        addTxt(sl,'No open bugs found. Check issue type is Bug in your export.',0.35,2.0,9.3,0.5,12,C.muted,{italic:true});
+      } else {
+        [
+          {l:'Youngest bug', v:minAge2+'d', c:C.green,  note:bugCount2===1?'only 1 bug':''},
+          {l:'Average age',  v:avgAge2+'d', c:C.orange, note:bugCount2===1?'only 1 bug':''},
+          {l:'Oldest bug',   v:maxAge2+'d', c:C.crimson,note:bugCount2===1?'only 1 bug':''},
+        ].forEach(function(x,i){
+          addMetricCard(sl,0.35+i*3.15,1.65,2.95,1.40,x.c,x.l,x.v,x.note);
+        });
+
+        if(bugCount2===1){
+          addRect(sl,0.35,3.22,9.30,0.55,'EEF4FF',C.teal,0.5);
+          addTxt(sl,'Only 1 open bug found — youngest, average and oldest are the same item. Export a wider date range to see distribution.',0.55,3.30,9.00,0.38,9,C.black,{italic:true});
+        }
+
+        const insight=avgAge2>14?'Average bug age exceeds 14 days — bugs are being accepted as normal. Challenge the team to set a maximum age policy.':'Bugs are being addressed promptly. Keep the momentum.';
+        addRect(sl,0.35,3.90,9.30,0.75,(avgAge2>14?C.orange:C.green)+'18',(avgAge2>14?C.orange:C.green),0.5);
+        addRect(sl,0.35,3.90,0.06,0.75,(avgAge2>14?C.orange:C.green));
+        addTxt(sl,(avgAge2>14?'Warning: ':'Good: ')+insight,0.55,4.00,8.90,0.55,10,C.black,{italic:true});
+      }
     }
 
     else if(m.id==='wip_age') {
@@ -1668,43 +1729,63 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
       const now=new Date();
       const pStart=new Date(now); pStart.setDate(pStart.getDate()-daysSel);
       const halfway=new Date(pStart); halfway.setDate(halfway.getDate()+Math.floor(daysSel/2));
+      const REMOVED_S=['Rejected','Cancelled','Wont Do','Declined','Out of Scope'];
       const atStart=csvRows.filter(function(r){const d=pd(r['Created']);return d&&d<=pStart;}).length;
       const addedE=csvRows.filter(function(r){const d=pd(r['Created']);return d&&d>pStart&&d<=halfway;}).length;
       const addedL=csvRows.filter(function(r){const d=pd(r['Created']);return d&&d>halfway&&d<=now;}).length;
+      const removed=csvRows.filter(function(r){
+        const d=pd(r['Created']||r['Updated']);
+        const st=(r['Status']||'').trim();
+        return d&&d>=pStart&&REMOVED_S.some(function(s){return st.toLowerCase().indexOf(s.toLowerCase())>=0;});
+      }).length;
       const total=atStart+addedE+addedL;
+      const netChange=(addedE+addedL)-removed;
       const stab=total>0?Math.round((atStart/total)*100):null;
       const stabC=stab===null?C.muted:stab>=80?C.green:stab>=60?C.orange:C.crimson;
       const stabL=stab===null?'Set period in JQL helper':
                   stab>=80?'Stable scope — good planning discipline':
-                  stab>=60?'Moderate scope creep — review intake':
-                  'High scope creep — items added frequently mid-period';
+                  stab>=60?'Moderate scope creep — review intake process':
+                  'High scope creep — frequent mid-period changes';
+      const netC=Math.abs(netChange)<=2?C.green:Math.abs(netChange)<=5?C.orange:C.crimson;
+      const netL=netChange>0?'+'+netChange+' net added':netChange<0?netChange+' net removed':'No net change';
 
+      // 5 metric cards
       [
-        {l:'At Period Start',  v:String(atStart), c:C.black},
-        {l:'Added Early',      v:String(addedE),  c:C.orange},
-        {l:'Added Late',       v:String(addedL),  c:C.crimson},
-        {l:'Stability Score',  v:stab!==null?stab+'%':'N/A', c:stabC},
+        {l:'At Period Start', v:String(atStart), c:C.black},
+        {l:'Added Early',     v:'+'+addedE,       c:C.orange},
+        {l:'Added Late',      v:'+'+addedL,        c:C.crimson},
+        {l:'Rejected',        v:'-'+removed,       c:C.green},
+        {l:'Stability Score', v:stab!==null?stab+'%':'N/A', c:stabC},
       ].forEach(function(x,i){
-        addMetricCard(sl,0.35+i*2.40,1.0,2.20,1.40,x.c,x.l,x.v,'');
+        addMetricCard(sl,0.35+i*1.88,1.0,1.78,1.40,x.c,x.l,x.v,'');
       });
 
-      addRect(sl,0.35,2.58,9.30,0.75,stabC+'18',stabC,0.5);
-      addRect(sl,0.35,2.58,0.06,0.75,stabC);
-      addTxt(sl,stabL,0.55,2.70,8.90,0.50,10,C.black);
+      // Net change + status banner
+      addRect(sl,0.35,2.58,2.20,0.75,netC+'18',netC,0.5);
+      addRect(sl,0.35,2.58,0.06,0.75,netC);
+      addTxt(sl,'NET CHANGE',0.55,2.62,2.00,0.22,7,netC,{bold:true});
+      addTxt(sl,netL,0.55,2.82,2.00,0.38,11,netC,{bold:true});
+
+      addRect(sl,2.70,2.58,6.95,0.75,stabC+'18',stabC,0.5);
+      addRect(sl,2.70,2.58,0.06,0.75,stabC);
+      addTxt(sl,stabL,2.90,2.70,6.70,0.50,10,C.black);
 
       // Stacked bar
       addTxt(sl,'SCOPE COMPOSITION',0.35,3.50,9.3,0.22,8,C.muted,{bold:true});
       if(total>0){
         const sw=9.30;
         const w1=(atStart/total)*sw, w2=(addedE/total)*sw, w3=(addedL/total)*sw;
+        const w4=removed>0?(removed/total)*sw:0;
         addRect(sl,0.35,3.78,w1,0.55,C.black);
         if(w2>0) addRect(sl,0.35+w1,3.78,w2,0.55,C.orange);
         if(w3>0) addRect(sl,0.35+w1+w2,3.78,w3,0.55,C.crimson);
-        if(w1>0.8) addTxt(sl,'Planned',0.45,3.86,w1-0.1,0.30,8,C.white,{bold:true});
-        if(w2>0.8) addTxt(sl,'Early add',0.35+w1+0.05,3.86,w2-0.1,0.30,8,C.white,{bold:true});
-        if(w3>0.8) addTxt(sl,'Late add',0.35+w1+w2+0.05,3.86,w3-0.1,0.30,8,C.white,{bold:true});
+        if(w4>0) addRect(sl,0.35+w1+w2+w3,3.78,w4,0.55,C.green);
+        if(w1>0.9) addTxt(sl,'Planned',0.45,3.86,w1-0.1,0.30,7,C.white,{bold:true});
+        if(w2>0.9) addTxt(sl,'Early add',0.35+w1+0.05,3.86,w2-0.1,0.30,7,C.white,{bold:true});
+        if(w3>0.9) addTxt(sl,'Late add',0.35+w1+w2+0.05,3.86,w3-0.1,0.30,7,C.white,{bold:true});
+        if(w4>0.9) addTxt(sl,'Rejected',0.35+w1+w2+w3+0.05,3.86,w4-0.1,0.30,7,C.white,{bold:true});
       }
-      addTxt(sl,'Formula: Items at period start / Total items x 100. Higher = more stable planning.',0.35,4.48,9.30,0.30,8,C.muted,{italic:true});
+      addTxt(sl,'Removed = status Rejected / Cancelled / Wont Do   Stability = items at start / total added x 100',0.35,4.48,9.30,0.30,8,C.muted,{italic:true});
     }
 
     // TIME IN STATUS
