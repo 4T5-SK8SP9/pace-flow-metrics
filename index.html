@@ -1597,6 +1597,17 @@ function generatePDF() {
     return `<div class="page">${content}</div>`;
   }
 
+  function slideHeader(title, subtitle, accentColor) {
+    accentColor = accentColor || '#F3271E';
+    return `<div class="slide-header" style="border-bottom:3px solid ${accentColor}">
+      <div>
+        <div class="slide-title">${title}</div>
+        ${subtitle ? `<div class="slide-sub">${subtitle}</div>` : ''}
+      </div>
+      <div class="slide-header-period">${period}</div>
+    </div>`;
+  }
+
   function coverPage() {
     return page(`
       <div style="background:${C.black};height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:3rem">
@@ -1624,10 +1635,7 @@ function generatePDF() {
       {l:'Defect Ratio',    v:s.dr||'N/A',                            c:C.crimson},
     ];
     return page(`
-      <div class="slide-header" style="border-bottom:3px solid ${C.red}">
-        <div class="slide-title">Team Summary</div>
-        <div class="slide-sub">Timeframe: ${period}</div>
-      </div>
+      ${slideHeader("Team Summary", "Key numbers at a glance", C.red)}
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
         ${cards.map(c=>`
           <div style="background:${c.c}12;border-left:3px solid ${c.c};border-radius:6px;padding:6px 12px;display:flex;align-items:center;justify-content:space-between">
@@ -1822,10 +1830,7 @@ function generatePDF() {
     }
 
     return page(`
-      <div class="slide-header" style="border-bottom:3px solid ${m.color||C.red}">
-        <div class="slide-title">${m.name}</div>
-        <div class="slide-sub">${m.desc}</div>
-      </div>
+      ${slideHeader(m.name, m.desc, m.color||C.red)}
       ${body}
       <div class="slide-footer">Timeframe: ${period} · ${team}</div>`);
   }
@@ -1874,6 +1879,17 @@ function generatePDF() {
     padding: 8px 20px 7px;
     margin-bottom: 0;
     flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .slide-header-period {
+    font-size: .62rem;
+    color: #F796A1;
+    white-space: nowrap;
+    margin-top: 3px;
+    flex-shrink: 0;
+    margin-left: 12px;
   }
   .slide-header::after {
     content: '';
@@ -2036,7 +2052,9 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     accent=accent||C.red;
     addRect(sl,0,0,W,0.50,C.black);
     addRect(sl,0,0.50,W,0.04,accent);
-    addTxt(sl,title,0.35,0.06,9.3,0.40,18,C.white,{bold:true});
+    // Title left, period top-right in rose
+    addTxt(sl,title,0.35,0.06,7.0,0.40,18,C.white,{bold:true});
+    addTxt(sl,period,7.40,0.12,2.50,0.26,8,C.rose,{align:'right'});
     if(subtitle) addTxt(sl,subtitle,0.35,0.56,9.3,0.26,10,C.muted,{italic:true});
     sl.background={color:C.off};
   }
@@ -2060,10 +2078,6 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
   addTxt(sl1,'KANBAN METRICS REPORT',0.7,0.7,8.6,0.35,9,C.rose,{bold:true});
   addTxt(sl1,team,0.7,1.1,8.6,1.0,36,C.white,{bold:true});
   addTxt(sl1,period,0.7,2.05,8.6,0.55,20,C.rose);
-  // Date range label
-  addRect(sl1,0.7,2.65,8.6,0.40,'33352F');
-  addTxt(sl1,'TIMEFRAME',0.88,2.68,2.0,0.24,7,C.muted,{bold:true});
-  addTxt(sl1,period,2.90,2.68,6.3,0.24,9,C.rose,{bold:true});
   if(smName) addTxt(sl1,smName,0.7,2.65,8.6,0.35,12,C.blush,{italic:true});
   addTxt(sl1,'Pandora PACE Digital and Technology',0.7,3.80,8.6,0.30,10,C.plum);
 
