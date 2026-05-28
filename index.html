@@ -673,18 +673,34 @@ function mergeAndLoad(results, fileCount) {
   // Merge TiS time columns into standard rows by Key
   if(results.standard && results.tis) {
     var tisMap = {};
-    results.tis.data.forEach(function(r){ if(r['Key']) tisMap[r['Key'].trim()] = r; });
+    // Build TiS map — try all possible key column names
+    results.tis.data.forEach(function(tr){
+      var k = (tr['Key']||tr['Issue key']||tr['Issue Key']||tr['key']||'').trim();
+      if(k) tisMap[k] = tr;
+    });
+
+    var matchCount = 0;
     mainData = mainData.map(function(r) {
-      var key = (r['Issue key']||r['Key']||'').trim();
+      // Try all possible key column names from standard CSV
+      var key = (r['Issue key']||r['Key']||r['Issue Key']||r['key']||'').trim();
       var tRow = tisMap[key];
       if(tRow) {
+        matchCount++;
         ['Defined','To Do','Meets DoR','In Refinement','Blocked',
          'In Progress','In testing','In Code Review','Story Prep','Done'].forEach(function(col){
-          if(tRow[col]) r[col] = tRow[col];
+          if(tRow[col] && tRow[col]!=='-') r[col] = tRow[col];
         });
       }
       return r;
     });
+    console.log('TiS merge: matched '+matchCount+' of '+mainData.length+' issues');
+    if(matchCount===0) {
+      // Show sample keys to help debug
+      var sampleStd = mainData.slice(0,3).map(function(r){ return r['Issue key']||r['Key']||'?'; });
+      var sampleTis = results.tis.data.slice(0,3).map(function(r){ return r['Key']||r['Issue key']||'?'; });
+      console.warn('No key matches found. Standard keys:', sampleStd, 'TiS keys:', sampleTis);
+      toast('Warning: CSVs loaded but issue keys did not match — check both are from the same project','error');
+    }
   }
 
   rows = mainData;
