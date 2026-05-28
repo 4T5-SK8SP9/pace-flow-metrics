@@ -271,11 +271,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
       <div class="drop-zone" id="dropZone">
         <span class="drop-icon" id="dropIcon">📂</span>
         <div class="drop-title" id="dropTitle">Drag &amp; drop your Jira CSV here</div>
-        <div class="drop-sub" id="dropSub">Drop one or both CSVs — or click Browse below</div>
+        <div class="drop-sub" id="dropSub">Drop one file, or select both CSVs together (Ctrl+click) and drop at once</div>
         <button type="button" class="browse-btn" id="browseBtn" onclick="openFilePicker(event)">
           📁 Browse files
         </button>
-        <span class="drop-pill" id="dropPill">Standard Jira CSV + Time in Status CSV</span>
+        <span class="drop-pill" id="dropPill">💡 Tip: drop both CSVs together to unlock Flow Efficiency</span>
+        <!-- Second file input for adding TiS CSV on top -->
+        <input type="file" id="tisFileInput" accept=".csv" onchange="onTisFileSelect(event)" style="display:none">
+        <div id="addTisBtn" style="display:none;margin-top:.6rem;padding:7px 14px;background:#f3eaf8;border:1px dashed #B5598C;border-radius:8px;cursor:pointer;font-size:.76rem;color:#B5598C;font-weight:500" onclick="document.getElementById('tisFileInput').click()">
+          ➕ Add Time in Status CSV to unlock Flow Efficiency
+        </div>
       </div>
 
 
@@ -599,8 +604,45 @@ function onFileSelect(e) {
 }
 function openFilePicker(e) {
   e.stopPropagation();
-  document.getElementById('fileInput').value = ''; // reset so same file can be re-selected
+  document.getElementById('fileInput').value = '';
   document.getElementById('fileInput').click();
+}
+
+function onTisFileSelect(e) {
+  var file = e.target.files[0];
+  if(!file) return;
+  Papa.parse(file, { header:true, skipEmptyLines:true, complete:function(r) {
+    var headers = r.meta.fields || [];
+    if(!isTimeInStatusCSV(headers)) {
+      toast('This does not look like a Time in Status CSV — check the file','error');
+      return;
+    }
+    // Merge TiS data into existing rows
+    var tisMap = {};
+    r.data.forEach(function(tr){ if(tr['Key']) tisMap[tr['Key'].trim()] = tr; });
+    rows = rows.map(function(row) {
+      var key = (row['Issue key']||row['Key']||'').trim();
+      var tRow = tisMap[key];
+      if(tRow) {
+        ['Defined','To Do','Meets DoR','In Refinement','Blocked',
+         'In Progress','In testing','In Code Review','Story Prep','Done'].forEach(function(col){
+          if(tRow[col]) row[col] = tRow[col];
+        });
+      }
+      return row;
+    });
+    window._csvRows = rows;
+    window._isTiSExport = true;
+    calcStats(rows);
+
+    // Update UI
+    document.getElementById('dropTitle').textContent = '2 files loaded successfully';
+    document.getElementById('dropSub').textContent = rows.length+' issues · Standard + Time in Status CSV';
+    document.getElementById('dropPill').textContent = '✓ Flow Efficiency unlocked 🎉';
+    document.getElementById('addTisBtn').style.display = 'none';
+    checkReady(); refreshPreview();
+    toast('Time in Status CSV merged — Flow Efficiency unlocked 🎉');
+  }, error:function(){ toast('Could not parse Time in Status CSV','error'); }});
 }
 function handleDropZoneClick(e) {}  // handled by initDropZone
 function loadFiles(files) {
@@ -673,6 +715,15 @@ function mergeAndLoad(results, fileCount) {
   }
   document.getElementById('snum1').classList.add('done');
   document.getElementById('statsRow').style.display = 'block';
+
+  // Show "Add TiS CSV" button if only standard CSV loaded
+  var addTisBtn = document.getElementById('addTisBtn');
+  if(!window._isTiSExport && rows.length > 0) {
+    addTisBtn.style.display = 'block';
+  } else {
+    addTisBtn.style.display = 'none';
+  }
+
   checkReady(); refreshPreview();
 }
 
