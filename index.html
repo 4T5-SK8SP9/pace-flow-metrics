@@ -1072,7 +1072,7 @@ function renderSlide(slide) {
           </div>`).join('')}
         </div>
         <div style="margin-top:1rem;font-size:.78rem;color:#5a7a6d;line-height:1.5">
-          Tell your stakeholders: <em>"Based on our last ${s.ct.length} completed items, we expect to deliver in around <strong>${s.pert} days</strong>. Minimum ${s.minCT}d, maximum ${s.maxCT}d."</em>
+          Tell your stakeholders: <em>"Based on our last ${(s.ct&&s.ct.length)||0} completed items, we expect to deliver in around <strong>${s.pert} days</strong>. Minimum ${s.minCT}d, maximum ${s.maxCT}d."</em>
         </div>
       </div>`;
   }
@@ -1257,7 +1257,7 @@ function renderSlide(slide) {
         </div>
       </div>
       <div style="background:#FAF6F7;border-radius:8px;padding:8px 12px;font-size:.72rem;color:#7A6A6D">
-        📌 Flow Efficiency = Active time ÷ (Active + Waiting) × 100 · Based on ${s.feScores.length} issues · Industry benchmark: 15–40%
+        📌 Flow Efficiency = Active time ÷ (Active + Waiting) × 100 · Based on ${(s.feScores&&s.feScores.length||0)} issues · Industry benchmark: 15–40%
       </div>`;
   }
 
@@ -1672,7 +1672,7 @@ function generatePDF() {
 
     let body = '';
 
-    if(m.id==='cycle_time' && s.ct.length) {
+    if(m.id==='cycle_time' && s.ct&&s.ct.length) {
       const sorted=[...s.ct].sort((a,b)=>a-b);
       const p50=sorted[Math.floor(sorted.length*.5)];
       const p85=sorted[Math.floor(sorted.length*.85)];
@@ -1712,7 +1712,7 @@ function generatePDF() {
           <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:${accs[i%accs.length]}">${cnt}</div>
         </div>`).join('')}
       </div>`;
-    } else if(m.id==='lead_time' && s.lt.length) {
+    } else if(m.id==='lead_time' && s.lt&&s.lt.length) {
       const sorted=[...s.lt].sort((a,b)=>a-b);
       body=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
         ${metCard('Minimum',Math.min(...s.lt)+'d',C.teal)}
@@ -1733,7 +1733,7 @@ function generatePDF() {
             <div style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:white;line-height:1">${s.pert}d</div>
           </div>
         </div>
-        <div style="font-size:.78rem;color:${C.black};font-style:italic">Tell stakeholders: "Based on our last ${s.ct.length} items, expect delivery in around ${s.pert} days."</div>
+        <div style="font-size:.78rem;color:${C.black};font-style:italic">Tell stakeholders: "Based on our last ${(s.ct&&s.ct.length)||0} items, expect delivery in around ${s.pert} days."</div>
       </div>`;
     } else if(m.id==='cfd') {
       const cW={},rW={};
@@ -2125,7 +2125,7 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
     const sl = pptx.addSlide();
     addHeader(sl, m.name, m.sub, m.acc);
 
-    if(m.id==='cycle_time' && s.ct.length) {
+    if(m.id==='cycle_time' && s.ct&&s.ct.length) {
       const bins=[0,0,0,0,0,0], lbls=['1-3d','4-7d','8-14d','15-21d','22-30d','30d+'];
       s.ct.forEach(function(d){if(d<=3)bins[0]++;else if(d<=7)bins[1]++;else if(d<=14)bins[2]++;else if(d<=21)bins[3]++;else if(d<=30)bins[4]++;else bins[5]++;});
       const mx=Math.max.apply(null,bins)||1;
@@ -2217,7 +2217,7 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
       }
     }
 
-    else if(m.id==='lead_time' && s.lt.length) {
+    else if(m.id==='lead_time' && s.lt&&s.lt.length) {
       const sorted=[].concat(s.lt).sort(function(a,b){return a-b;});
       const p50=sorted[Math.floor(sorted.length*.5)];
       const p85=sorted[Math.floor(sorted.length*.85)];
@@ -2236,7 +2236,7 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
         addTxt(sl,x[1],0.55+i*2.35,2.10,2.15,0.65,26,x[3]?C.white:x[2],{bold:true,align:'center'});
         addTxt(sl,x[0],0.55+i*2.35,2.75,2.15,0.40,9,x[3]?'9fdfc4':C.muted,{align:'center'});
       });
-      addTxt(sl,'Tell stakeholders: Based on our last '+s.ct.length+' items, expect delivery in around '+s.pert+' days. Minimum '+s.minCT+'d, maximum '+s.maxCT+'d.',0.55,3.60,9.0,0.55,10,C.black,{italic:true});
+      addTxt(sl,'Tell stakeholders: Based on our last '+(s.ct&&s.ct.length||0)+'' items, expect delivery in around '+s.pert+' days. Minimum '+s.minCT+'d, maximum '+s.maxCT+'d.',0.55,3.60,9.0,0.55,10,C.black,{italic:true});
     }
 
     else if(m.id==='cfd') {
@@ -2384,7 +2384,7 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
             addTxt(sl,Math.round(e[1])+'h',bw+0.45,3.67+i*0.36,1.5,0.22,8,C.muted,{});
           });
         }
-        addTxt(sl,'Flow Efficiency = Active time / Total time x 100. Industry benchmark: 15-40%. Based on '+s.feScores.length+' issues.',0.35,5.28,9.30,0.22,7,C.muted,{italic:true});
+        addTxt(sl,'Flow Efficiency = Active time / Total time x 100. Industry benchmark: 15-40%. Based on '+(s.feScores?s.feScores.length:0)+' issues.',0.35,5.28,9.30,0.22,7,C.muted,{italic:true});
       }
     }
 
