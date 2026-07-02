@@ -268,7 +268,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
       <!-- Hidden real file input -->
       <input type="file" id="fileInput" accept=".csv,.xlsx" multiple onchange="onFileSelect(event)" style="display:none">
 
-      <div class="drop-zone" id="dropZone">
+      <div class="drop-zone" id="dropZone" ondragover="event.preventDefault()">
         <span class="drop-icon" id="dropIcon">📂</span>
         <div class="drop-title" id="dropTitle">Drag &amp; drop your Jira CSV here</div>
         <div class="drop-sub" id="dropSub">Drop one file, or select both CSVs together (Ctrl+click) and drop at once</div>
@@ -278,7 +278,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
         <span class="drop-pill" id="dropPill">💡 Tip: drop both CSVs together to unlock Flow Efficiency</span>
         <!-- Second file input for adding TiS CSV on top -->
         <input type="file" id="tisFileInput" accept=".csv" onchange="onTisFileSelect(event)" style="display:none">
-        <div id="addTisBtn" style="display:none;margin-top:.6rem;padding:7px 14px;background:#f3eaf8;border:1px dashed #B5598C;border-radius:8px;cursor:pointer;font-size:.76rem;color:#B5598C;font-weight:500" onclick="document.getElementById('tisFileInput').click()">
+        <div id="addTisBtn" style="display:none;margin-top:.6rem;padding:7px 14px;background:#f3eaf8;border:1px dashed #B5598C;border-radius:8px;cursor:pointer;font-size:.76rem;color:#B5598C;font-weight:500" onclick="event.stopPropagation(); document.getElementById('tisFileInput').click()"
           ➕ Add Time in Status CSV to unlock Flow Efficiency
         </div>
       </div>
@@ -286,7 +286,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--off);color:var(--black);m
 
       <!-- JQL Helper -->
       <div class="jql-box" id="jqlBox">
-        <div class="jql-header" onclick="toggleJql()">
+       <div class="jql-header" onclick="event.stopPropagation(); toggleJql()">
           <span class="jql-htitle">🔍 How to export from Jira — JQL guide</span>
           <span class="jql-toggle" id="jqlToggle">▼</span>
         </div>
@@ -582,10 +582,11 @@ function initDropZone() {
     }
     return false;
   });
-  dz.addEventListener('click', function(e) {
-    if(e.target.id !== 'browseBtn') {
-      document.getElementById('fileInput').click();
-    }
+dz.addEventListener('click', function(e) {
+    if(e.target.id === 'browseBtn') return;
+    if(e.target.closest('.jql-box')) return;
+    if(e.target.closest('#addTisBtn')) return;
+    document.getElementById('fileInput').click();
   });
 
   // Prevent browser from opening file if dropped outside the zone
