@@ -2237,7 +2237,7 @@ async function buildPptx(team, period, smName, s, aiSummary, chosen, teamSize) {
         addTxt(sl,x[1],0.55+i*2.35,2.10,2.15,0.65,26,x[3]?C.white:x[2],{bold:true,align:'center'});
         addTxt(sl,x[0],0.55+i*2.35,2.75,2.15,0.40,9,x[3]?'9fdfc4':C.muted,{align:'center'});
       });
-      addTxt(sl,'Tell stakeholders: Based on our last '+(s.ct&&s.ct.length||0)+'' items, expect delivery in around '+s.pert+' days. Minimum '+s.minCT+'d, maximum '+s.maxCT+'d.',0.55,3.60,9.0,0.55,10,C.black,{italic:true});
+      addTxt(sl,'Tell stakeholders: Based on our last '+(s.ct&&s.ct.length||0)+' items, expect delivery in around '+s.pert+' days. Minimum '+s.minCT+'d, maximum '+s.maxCT+'d.',0.55,3.60,9.0,0.55,10,C.black,{italic:true});
     }
 
     else if(m.id==='cfd') {
